@@ -424,6 +424,45 @@ def upload_test():
     log.info("No video was generated and Buffer was not contacted.")
 
 
+def video_upload_test():
+    """Upload and delete a tiny MP4 to verify Cloudinary video/create permission; never contacts Buffer."""
+    cloudinary.config(cloud_name=need("CLOUDINARY_CLOUD_NAME"),
+                      api_key=need("CLOUDINARY_API_KEY"),
+                      api_secret=need("CLOUDINARY_API_SECRET"),secure=True)
+    WORK.mkdir(exist_ok=True)
+    test_video = WORK / f"cloudinary-video-permission-test-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.mp4"
+    public_id = f"video-upload-permission-test-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"
+    try:
+        run(["ffmpeg", "-y", "-f", "lavfi", "-i",
+             "color=c=blue:s=160x160:r=10:d=1", "-an",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+             str(test_video)])
+        result = cloudinary.uploader.upload(
+            str(test_video), resource_type="video",
+            folder=os.getenv("CLOUDINARY_FOLDER", "funny-animals-comedy") + "/connection-tests",
+            public_id=public_id, overwrite=False, unique_filename=False, type="upload",
+            tags=["temporary-video-upload-permission-test"])
+        asset_id = result.get("public_id")
+        if not asset_id or not result.get("secure_url"):
+            raise RuntimeError("Cloudinary video upload response did not include the expected asset details.")
+        log.info("CLOUDINARY_VIDEO_UPLOAD_TEST_SUCCESS: video upload/create permission is working.")
+        log.info("Temporary test video asset: %s", asset_id)
+        try:
+            cleanup = cloudinary.uploader.destroy(asset_id, resource_type="video", type="upload")
+            if cleanup.get("result") == "ok":
+                log.info("Temporary test video cleaned up successfully.")
+            else:
+                log.warning("Video upload succeeded, but cleanup was not confirmed: %s", cleanup.get("result"))
+        except Exception as exc:
+            log.warning("Video upload succeeded, but temporary asset cleanup failed: %s", exc)
+        log.info("No Buffer API call was made and no Facebook post was created.")
+    finally:
+        try:
+            test_video.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("Could not remove local temporary test video: %s", exc)
+
+
 def queue_reel(video_url,caption):
     channel=verify_channel()
     channel_id=need("BUFFER_CHANNEL_ID")
@@ -465,7 +504,11 @@ def main():
     parser.add_argument("--validate",action="store_true")
     parser.add_argument("--upload-test",action="store_true",
                         help="Test Cloudinary image upload only; does not generate video or contact Buffer.")
+    parser.add_argument("--video-upload-test",action="store_true",
+                        help="Test Cloudinary video upload only; does not contact Buffer or publish.")
     args=parser.parse_args()
+    if args.video_upload_test:
+        video_upload_test(); return
     if args.upload_test:
         upload_test(); return
     if args.validate:
