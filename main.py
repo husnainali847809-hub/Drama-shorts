@@ -227,7 +227,7 @@ def render_video(story):
                            "-of","default=noprint_wrappers=1:nokey=1",str(audio)]))
         seconds=max(3.0,seconds+0.25)
         run(["ffmpeg","-y","-loop","1","-framerate",str(FPS),"-i",str(frame),"-i",str(audio),
-             "-t",f"{seconds:.2f}","-vf","scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p",
+             "-t",f"{seconds:.2f}","-vf","scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.001,1.08)':d=1:s=1080x1920:fps=30,format=yuv420p",
              "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf","23","-c:a","aac",
              "-b:a","128k","-shortest",str(segment)])
         segments.append(segment)
