@@ -221,8 +221,8 @@ Narration must be short, natural spoken dialogue/story, without stage directions
 
     # Accept JSON wrapped in Markdown fences, while rejecting non-JSON output.
     cleaned = response_text.strip()
-    cleaned = re.sub(r"^\`\`\`(?:json)?\\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\\s*\`\`\`$", "", cleaned)
+    cleaned = re.sub(r"^\`\`\`(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*\`\`\`$", "", cleaned)
     first, last = cleaned.find("{"), cleaned.rfind("}")
     if first < 0 or last <= first:
         log.warning("OpenRouter did not return a JSON object; using local story.")
