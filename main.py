@@ -11,7 +11,6 @@ WORK, OUTPUT = ROOT / "work", ROOT / "output"
 W, H, FPS = 1080, 1920, 30
 BUFFER_URL = "https://api.buffer.com"
 STATE_PATH = "state/last_queued_date.txt"
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 EXPECTED_PAGE = os.getenv("BUFFER_EXPECTED_CHANNEL_NAME", "Funny Animals Comedy").strip()
 VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")
 log = logging.getLogger("funny_animals")
@@ -97,7 +96,7 @@ def write_state(day, sha):
 
 
 def local_story_fallback():
-    """Return an original six-scene story when Gemini is temporarily unavailable."""
+    """Return an original six-scene story when the story API is unavailable."""
     stories = [
         {
             "title": "The Great Biscuit Mix-Up",
@@ -233,7 +232,7 @@ Narration must be short, natural spoken dialogue/story, without stage directions
         log.warning("OpenRouter returned invalid JSON; using local story.")
         return local_story_fallback()
 
-    if not isinstance(story, dict) or len(story.get("characters", [])) != 2 or len(story.get("scenes", [])) != 6:
+    if (not isinstance(story, dict) or not isinstance(story.get("characters"), list) or\n            not isinstance(story.get("scenes"), list) or len(story["characters"]) != 2 or\n            len(story["scenes"]) != 6):
         log.warning("OpenRouter story did not contain exactly two characters and six scenes; using local story.")
         return local_story_fallback()
     for c in story["characters"]:
