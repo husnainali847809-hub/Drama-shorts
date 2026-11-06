@@ -97,6 +97,54 @@ def write_state(day, sha):
     log.info("Daily duplicate guard updated: %s", day)
 
 
+def local_story_fallback():
+    """Return an original six-scene story when Gemini is temporarily unavailable."""
+    stories = [
+        {
+            "title": "The Great Biscuit Mix-Up",
+            "caption": "Two friends, one missing biscuit, and a very silly mystery! #FunnyAnimals #AnimalComedy",
+            "characters": [{"name": "Milo", "species": "dog"}, {"name": "Pip", "species": "cat"}],
+            "scenes": [
+                {"visual": "Milo proudly guards an empty biscuit plate", "narration": "Milo announced that he had saved the last biscuit for a very special guest."},
+                {"visual": "Pip examines a few crumbs with a magnifying glass", "narration": "Pip arrived wearing a detective hat and said, this case smells delicious."},
+                {"visual": "Milo points toward a trail of crumbs", "narration": "The friends followed tiny crumbs across the room, past a cushion and a toy."},
+                {"visual": "Pip discovers crumbs on Milo's nose", "narration": "Pip paused, then noticed a crumb sitting right on Milo's nose."},
+                {"visual": "Milo looks surprised while Pip giggles", "narration": "Milo checked his nose and remembered he had taste-tested the biscuit earlier."},
+                {"visual": "Both friends share a fresh snack", "narration": "They solved the mystery together and agreed that sharing snacks was best."}
+            ]
+        },
+        {
+            "title": "The Very Serious Dance Lesson",
+            "caption": "A dance teacher discovers an unexpected talent! #FunnyAnimals #AnimalComedy",
+            "characters": [{"name": "Bella", "species": "rabbit"}, {"name": "Rocky", "species": "bear"}],
+            "scenes": [
+                {"visual": "Bella sets up a tiny dance class", "narration": "Bella opened a dance class and promised to teach one perfect move."},
+                {"visual": "Rocky arrives wearing a colorful scarf", "narration": "Rocky arrived early and asked whether dancing required remembering left and right."},
+                {"visual": "Bella demonstrates a simple side step", "narration": "Bella showed a gentle side step, followed by a little turn."},
+                {"visual": "Rocky turns the wrong way but stays cheerful", "narration": "Rocky turned the other way and accidentally invented a brand-new dance."},
+                {"visual": "Bella copies Rocky's funny dance", "narration": "Bella tried the move and discovered it was surprisingly fun."},
+                {"visual": "Friends celebrate their new dance", "narration": "They named it the Happy Wobble and performed it together."}
+            ]
+        },
+        {
+            "title": "The Tiny Garden Helper",
+            "caption": "A little gardening help grows into a big surprise! #FunnyAnimals #AnimalComedy",
+            "characters": [{"name": "Sunny", "species": "fox"}, {"name": "Dot", "species": "duck"}],
+            "scenes": [
+                {"visual": "Sunny prepares a small garden bed", "narration": "Sunny wanted to grow the tallest sunflower in the whole garden."},
+                {"visual": "Dot arrives with a tiny watering can", "narration": "Dot offered to help and brought a watering can almost as big as herself."},
+                {"visual": "Friends gently water the soil", "narration": "They planted a seed and gave the soil a careful little drink."},
+                {"visual": "Dot checks the soil every few moments", "narration": "Dot checked for a flower every minute and asked if it was ready yet."},
+                {"visual": "A small green sprout appears", "narration": "At last, a tiny green sprout appeared, and both friends cheered."},
+                {"visual": "Friends admire the sprout in sunshine", "narration": "It was not the tallest sunflower yet, but it was their favorite beginning."}
+            ]
+        }
+    ]
+    day_number = datetime.now(timezone.utc).date().toordinal()
+    story = stories[day_number % len(stories)]
+    log.warning("Gemini unavailable after retries; using built-in local story fallback.")
+    return json.loads(json.dumps(story))
+
 def make_story():
     client = genai.Client(api_key=need("GEMINI_API_KEY"))
     prompt = """Write an original, harmless, family-friendly animal comedy story in English.
@@ -147,10 +195,7 @@ Narration must be short, natural spoken dialogue/story, without stage directions
             break
 
     if response is None:
-        raise RuntimeError(
-            "Gemini primary and fallback models both failed after retries. "
-            "No video was generated or queued."
-        ) from last_error
+        return local_story_fallback()
     story = json.loads(response.text)
     if len(story.get("characters", [])) != 2 or len(story.get("scenes", [])) != 6:
         raise RuntimeError("Gemini story must have exactly two characters and six scenes.")
