@@ -6,7 +6,7 @@ This repository is intentionally separate from Unique News. It has its own secre
 
 ## Pipeline
 
-1. Gemini generates an original English comedy story with two consistent animal characters and six scenes.
+1. OpenRouter's free-model router generates an original English comedy story with two consistent animal characters and six scenes.
 2. Pillow draws original 2D cartoon scenes.
 3. Edge TTS generates narration.
 4. FFmpeg renders a vertical MP4 (1080×1920, 30 fps).
@@ -28,7 +28,7 @@ Open **Settings → Secrets and variables → Actions**.
 ### Repository secrets
 
 Add:
-- `GEMINI_API_KEY`
+- `OPENROUTER_API_KEY`
 - `BUFFER_API_KEY`
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
@@ -37,10 +37,9 @@ Add:
 ### Repository variables
 
 Add:
-- `BUFFER_CHANNEL_ID` — the ID of the Funny Animals Comedy Facebook channel in Buffer. Never use the Unique News channel ID.
-- `BUFFER_EXPECTED_CHANNEL_NAME` — exactly `Funny Animals Comedy`; the Buffer channel name or display name must match.
-- `GEMINI_MODEL` — optional; default is `gemini-3.8-flash`.
-
+- `BUFFER_CHANNEL_ID` — the ID of the Animated Jungle Facebook channel in Buffer. Never use the Unique News channel ID.
+- `BUFFER_EXPECTED_CHANNEL_NAME` — exactly `Animated Jungle`; the Buffer channel name or display name must match.
+- 
 Keep the Cloudinary folder as `funny-animals-comedy`.
 
 Never put secret values in code, README files, workflow YAML or screenshots.
@@ -80,6 +79,6 @@ The schedule is 13:00 UTC (18:00 Pakistan Standard Time). GitHub scheduled jobs 
 
 - **SAFETY STOP:** check the configured Buffer channel ID and exact page name.
 - **Missing secret/variable:** add it under repository Settings → Secrets and variables → Actions.
-- **Gemini error:** check API key, quota and model availability.
+- **OpenRouter error:** check the API key and free-model rate limits; the built-in story fallback is used for temporary API outages.
 - **Buffer error:** check the page connection and posting permissions.
 - **Queued/scheduled:** Buffer accepted the post; Facebook publication is a separate later status.
