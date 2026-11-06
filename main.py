@@ -95,60 +95,47 @@ def write_state(day, sha):
     log.info("Daily duplicate guard updated: %s", day)
 
 
+def boss_story():
+    """A fixed six-scene animal adaptation of the 'little boss' comedy concept."""
+    return {
+        "title": "The Monkey Jungle Boss",
+        "caption": "Monkey found a big hat and declared himself the jungle boss. Rabbit had other plans! #AnimatedJungle #FunnyAnimals #AnimalComedy",
+        "characters": [
+            {"name": "Momo", "species": "monkey"},
+            {"name": "Bun", "species": "rabbit"}
+        ],
+        "scenes": [
+            {"visual": "Momo discovers a huge fancy hat and puts it on proudly",
+             "narration": "Momo found a giant hat, placed it on his head, and announced, I am the boss of this jungle!"},
+            {"visual": "Momo gives Rabbit a very serious order",
+             "narration": "Momo pointed at Bun and said, First rule, everyone must call me Your Bossness!"},
+            {"visual": "Bun asks the new boss to tidy the jungle path",
+             "narration": "Bun nodded politely and asked, Great boss, could you please tidy the path for everyone?"},
+            {"visual": "Momo tries to avoid the broom and hide behind his hat",
+             "narration": "Momo suddenly remembered an important meeting, but Bun handed him a little broom."},
+            {"visual": "Momo sweeps leaves while Bun watches with a smile",
+             "narration": "The boss swept one leaf, then two, then discovered the whole jungle needed cleaning."},
+            {"visual": "The hat slips onto Bun and Momo laughs",
+             "narration": "When the hat slipped onto Bun, Momo laughed and said, You can be boss tomorrow!"}
+        ]
+    }
+
+
 def local_story_fallback():
-    """Return an original six-scene story when the story API is unavailable."""
-    stories = [
-        {
-            "title": "The Great Biscuit Mix-Up",
-            "caption": "Two friends, one missing biscuit, and a very silly mystery! #FunnyAnimals #AnimalComedy",
-            "characters": [{"name": "Milo", "species": "dog"}, {"name": "Pip", "species": "cat"}],
-            "scenes": [
-                {"visual": "Milo proudly guards an empty biscuit plate", "narration": "Milo announced that he had saved the last biscuit for a very special guest."},
-                {"visual": "Pip examines a few crumbs with a magnifying glass", "narration": "Pip arrived wearing a detective hat and said, this case smells delicious."},
-                {"visual": "Milo points toward a trail of crumbs", "narration": "The friends followed tiny crumbs across the room, past a cushion and a toy."},
-                {"visual": "Pip discovers crumbs on Milo's nose", "narration": "Pip paused, then noticed a crumb sitting right on Milo's nose."},
-                {"visual": "Milo looks surprised while Pip giggles", "narration": "Milo checked his nose and remembered he had taste-tested the biscuit earlier."},
-                {"visual": "Both friends share a fresh snack", "narration": "They solved the mystery together and agreed that sharing snacks was best."}
-            ]
-        },
-        {
-            "title": "The Very Serious Dance Lesson",
-            "caption": "A dance teacher discovers an unexpected talent! #FunnyAnimals #AnimalComedy",
-            "characters": [{"name": "Bella", "species": "rabbit"}, {"name": "Rocky", "species": "bear"}],
-            "scenes": [
-                {"visual": "Bella sets up a tiny dance class", "narration": "Bella opened a dance class and promised to teach one perfect move."},
-                {"visual": "Rocky arrives wearing a colorful scarf", "narration": "Rocky arrived early and asked whether dancing required remembering left and right."},
-                {"visual": "Bella demonstrates a simple side step", "narration": "Bella showed a gentle side step, followed by a little turn."},
-                {"visual": "Rocky turns the wrong way but stays cheerful", "narration": "Rocky turned the other way and accidentally invented a brand-new dance."},
-                {"visual": "Bella copies Rocky's funny dance", "narration": "Bella tried the move and discovered it was surprisingly fun."},
-                {"visual": "Friends celebrate their new dance", "narration": "They named it the Happy Wobble and performed it together."}
-            ]
-        },
-        {
-            "title": "The Tiny Garden Helper",
-            "caption": "A little gardening help grows into a big surprise! #FunnyAnimals #AnimalComedy",
-            "characters": [{"name": "Sunny", "species": "fox"}, {"name": "Dot", "species": "duck"}],
-            "scenes": [
-                {"visual": "Sunny prepares a small garden bed", "narration": "Sunny wanted to grow the tallest sunflower in the whole garden."},
-                {"visual": "Dot arrives with a tiny watering can", "narration": "Dot offered to help and brought a watering can almost as big as herself."},
-                {"visual": "Friends gently water the soil", "narration": "They planted a seed and gave the soil a careful little drink."},
-                {"visual": "Dot checks the soil every few moments", "narration": "Dot checked for a flower every minute and asked if it was ready yet."},
-                {"visual": "A small green sprout appears", "narration": "At last, a tiny green sprout appeared, and both friends cheered."},
-                {"visual": "Friends admire the sprout in sunshine", "narration": "It was not the tallest sunflower yet, but it was their favorite beginning."}
-            ]
-        }
-    ]
-    day_number = datetime.now(timezone.utc).date().toordinal()
-    story = stories[day_number % len(stories)]
-    log.warning("OpenRouter unavailable; using built-in local story fallback.")
-    return json.loads(json.dumps(story))
+    """Use the selected original six-scene boss comedy if the story API is unavailable."""
+    log.warning("OpenRouter unavailable; using the built-in Jungle Boss story.")
+    return boss_story()
 
 def make_story():
     """Generate a safe six-scene story through OpenRouter, with a local fallback."""
     api_key = need("OPENROUTER_API_KEY")
     prompt = """Write an original, harmless, family-friendly animal comedy story in English.
+Use this exact comedy premise: a cheeky monkey finds an oversized fancy hat and declares
+himself the boss of the jungle; a clever rabbit gives him a funny but harmless responsibility,
+such as tidying the jungle path; finish with a playful hat-related twist.
 No cruelty, violence, dangerous stunts, frightening scenes, copyrighted characters,
 brands, celebrities or impersonations. Make it funny and understandable without sound.
+Keep the monkey and rabbit as the two characters throughout all six scenes.
 Return ONLY valid JSON in this shape:
 {"title":"up to 8 words","caption":"1-2 engaging sentences plus 3-5 hashtags",
 "characters":[{"name":"name","species":"cat"},{"name":"name","species":"dog"}],
@@ -415,7 +402,31 @@ def draw_story_prop(draw, story, scene, index, frame_no, t):
     ink = "#263047"
     title = str(story.get("title","")).lower()
     cue = str(scene.get("visual","")).lower()
-    if "dance" in title:
+    if "boss" in title:
+        # Oversized royal hat, jungle-boss sign and simple clean-up props.
+        if index == 0:
+            draw.ellipse((190,690,445,745),fill="#6C3D91",outline=ink,width=8)
+            draw.polygon([(220,700),(245,565),(390,565),(425,700)],fill="#8E5CC2",outline=ink)
+            draw.ellipse((270,575,350,650),fill="#FFE16B",outline=ink,width=5)
+            draw.text((286,590),"★",font=font(45,True),fill="#8E3A63")
+        elif index == 1:
+            draw.rounded_rectangle((390,610,690,760),radius=28,fill="#FFE16B",outline=ink,width=7)
+            draw.text((435,650),"BOSS",font=font(58,True),fill=ink)
+        elif index == 2:
+            draw.rounded_rectangle((380,1120,700,1210),radius=24,fill="#8B583A",outline=ink,width=6)
+            draw.text((430,1142),"JUNGLE PATH",font=font(30,True),fill="white")
+        elif index in (3,4):
+            draw.line((600,830,720,1100),fill="#8B583A",width=24)
+            draw.polygon([(570,1080),(745,1080),(720,1170),(590,1170)],fill="#E9C46A",outline=ink)
+            for j in range(7):
+                xx=390+j*48
+                yy=1160+int(math.sin(j+t*3)*18)
+                draw.ellipse((xx-18,yy-10,xx+18,yy+10),fill="#D98A3A",outline=ink,width=2)
+        else:
+            draw.ellipse((580,650,840,715),fill="#6C3D91",outline=ink,width=7)
+            draw.polygon([(615,665),(645,540),(790,540),(820,665)],fill="#8E5CC2",outline=ink)
+            draw.text((655,570),"★",font=font(55,True),fill="#FFE16B")
+    elif "dance" in title:
         # Dance-class props: music notes, floor markers and a colorful scarf.
         draw.rounded_rectangle((355,1120,725,1200),radius=30,fill="#F7D66B",outline=ink,width=7)
         for x in (430,535,640):
@@ -705,7 +716,8 @@ def main():
                         help="Test Cloudinary video upload only; does not contact Buffer or publish.")
     args=parser.parse_args()
     if args.preview:
-        story=make_story()
+        # Preview the specifically selected Jungle Boss concept deterministically.
+        story=boss_story()
         log.info("Preview story: %s",story["title"])
         video=render_video(story)
         log.info("PREVIEW_ONLY: video saved locally at %s; no Cloudinary upload or Buffer post.",video)
