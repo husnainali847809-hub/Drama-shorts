@@ -232,7 +232,13 @@ Narration must be short, natural spoken dialogue/story, without stage directions
         log.warning("OpenRouter returned invalid JSON; using local story.")
         return local_story_fallback()
 
-    if (not isinstance(story, dict) or not isinstance(story.get("characters"), list) or\n            not isinstance(story.get("scenes"), list) or len(story["characters"]) != 2 or\n            len(story["scenes"]) != 6):
+    if (
+        not isinstance(story, dict)
+        or not isinstance(story.get("characters"), list)
+        or not isinstance(story.get("scenes"), list)
+        or len(story["characters"]) != 2
+        or len(story["scenes"]) != 6
+    ):
         log.warning("OpenRouter story did not contain exactly two characters and six scenes; using local story.")
         return local_story_fallback()
     for c in story["characters"]:
