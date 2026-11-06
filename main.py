@@ -1,4 +1,4 @@
-import argparse, asyncio, base64, io, json, logging, os, re, subprocess, sys, time
+import argparse, asyncio, base64, io, json, logging, math, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -276,68 +276,227 @@ def wrap(draw, text, f, width):
     return lines
 
 
-def animal(draw, x, y, species, name, idx):
-    palette = {"dog":"#C98A52","cat":"#E7A35A","rabbit":"#E8D5C7","fox":"#D96D35",
-               "bear":"#8C654C","panda":"#F3F3F3","monkey":"#A96F45","duck":"#F5D447",
-               "lion":"#C78B39","pig":"#F2A6A6"}
-    fur = palette.get(species, "#9AAFC0")
-    dark = "#222222"
-    draw.ellipse((x-140,y+60,x+140,y+360), fill=fur, outline=dark, width=7)
-    draw.ellipse((x-150,y-150,x+150,y+150), fill=fur, outline=dark, width=7)
+
+def draw_background(draw, scene_index, frame_no, t):
+    palettes = [
+        ("#87D8F2", "#E4F8FF", "#7CCB72", "#3E9A61"),
+        ("#A7DDF8", "#F1FAFF", "#78C879", "#368B55"),
+        ("#F6D38A", "#FFF0C5", "#8CCB78", "#4C9B5B"),
+        ("#9ED9F1", "#E9F8FF", "#70BD72", "#347E51"),
+        ("#B7DDF4", "#F2FAFF", "#82C978", "#3C965B"),
+        ("#F8D99C", "#FFF3D6", "#83C878", "#3D8F56")
+    ]
+    sky, cloud, hill, ground = palettes[scene_index % len(palettes)]
+    for y in range(H):
+        q = y / H
+        if q < 0.68:
+            c1 = tuple(int(sky[i:i+2],16) for i in (1,3,5))
+            c2 = tuple(int(cloud[i:i+2],16) for i in (1,3,5))
+            k = q / 0.68
+            color = tuple(int(c1[j]*(1-k)+c2[j]*k) for j in range(3))
+        else:
+            c1 = tuple(int(hill[i:i+2],16) for i in (1,3,5))
+            c2 = tuple(int(ground[i:i+2],16) for i in (1,3,5))
+            k = (q-0.68)/0.32
+            color = tuple(int(c1[j]*(1-k)+c2[j]*k) for j in range(3))
+        draw.line((0,y,W,y), fill=color)
+    # Slow-moving clouds and layered rolling hills create visible parallax.
+    for j in range(3):
+        x = int((j*470 + frame_no*0.7) % (W+260)) - 130
+        y = 250 + j*115
+        draw.ellipse((x-100,y-35,x+10,y+35), fill="#FFFFFF")
+        draw.ellipse((x-45,y-75,x+55,y+35), fill="#FFFFFF")
+        draw.ellipse((x+5,y-40,x+115,y+35), fill="#FFFFFF")
+    draw.ellipse((-230,1040,560,1510), fill=hill)
+    draw.ellipse((440,1080,1320,1540), fill="#9BD28A")
+    # Jungle trees and bushes.
+    for side in (0,1):
+        tx = 70 if side == 0 else 1010
+        draw.rectangle((tx-22,620,tx+22,1320), fill="#8A5837")
+        for ox,oy,r in [(-55,650,100),(45,620,120),(0,520,115),(-5,760,95)]:
+            draw.ellipse((tx+ox-r,oy-r,tx+ox+r,oy+r), fill="#3C9D62")
+        for bx in range(3):
+            xx = tx + (bx-1)*75
+            draw.ellipse((xx-95,1290,xx+95,1460), fill="#4BA968")
+    # Sun and small drifting sparkles.
+    draw.ellipse((850,150,1010,310), fill="#FFE27A")
+    for j in range(8):
+        x = int((j*151 + frame_no*1.4) % W)
+        y = 420 + (j%3)*130 + int(8*math.sin(t*2+j))
+        draw.ellipse((x-5,y-5,x+5,y+5), fill="#FFFFFF")
+
+
+def draw_character(draw, x, base_y, species, name, frame_no, t, character_index):
+    colors = {"dog":"#C98A52","cat":"#E7A35A","rabbit":"#E8D5C7","fox":"#D96D35",
+              "bear":"#8C654C","panda":"#F3F3F3","monkey":"#A96F45","duck":"#F5D447",
+              "lion":"#C78B39","pig":"#F2A6A6"}
+    fur = colors.get(species, "#91AFC0")
+    dark, cream = "#263047", "#FFF0D8"
+    phase = t*5.2 + character_index*1.7
+    bob = math.sin(phase)*13
+    x = int(x + math.sin(t*1.8+character_index)*13)
+    y = int(base_y + bob)
+    head_y = y-185
+    # Tail wiggles behind the body.
+    tail_swing = int(math.sin(phase*1.3)*25)
+    if species in ("dog","cat","fox","lion","monkey"):
+        draw.line((x+105,y+60,x+175+tail_swing,y+5), fill=fur, width=25)
+        draw.ellipse((x+158+tail_swing,y-12,x+190+tail_swing,y+22), fill=fur, outline=dark, width=4)
+    elif species == "rabbit":
+        draw.ellipse((x+105,y+30,x+170,y+95), fill="#FFFFFF", outline=dark, width=4)
+    # Feet swing as the character bounces.
+    step = int(math.sin(phase*1.5)*17)
+    draw.ellipse((x-90,y+235,x-5,y+285+step), fill=dark)
+    draw.ellipse((x+5,y+235-step,x+90,y+285), fill=dark)
+    # Body and belly.
+    draw.ellipse((x-125,y-5,x+125,y+270), fill=fur, outline=dark, width=7)
+    draw.ellipse((x-76,y+72,x+76,y+230), fill=cream)
+    # Arms move independently to make the character visibly act.
+    left_hand = (x-190, y+35+int(math.sin(phase)*48))
+    right_hand = (x+190, y+35+int(math.cos(phase)*48))
+    draw.line((x-92,y+40,left_hand[0],left_hand[1]), fill=dark, width=31)
+    draw.line((x+92,y+40,right_hand[0],right_hand[1]), fill=dark, width=31)
+    draw.ellipse((left_hand[0]-25,left_hand[1]-25,left_hand[0]+25,left_hand[1]+25), fill=fur, outline=dark, width=4)
+    draw.ellipse((right_hand[0]-25,right_hand[1]-25,right_hand[0]+25,right_hand[1]+25), fill=fur, outline=dark, width=4)
+    # Head, ears and species details.
+    draw.ellipse((x-137,head_y-130,x+137,head_y+140), fill=fur, outline=dark, width=7)
     if species == "rabbit":
-        draw.ellipse((x-105,y-300,x-35,y-80), fill=fur, outline=dark, width=6)
-        draw.ellipse((x+35,y-300,x+105,y-80), fill=fur, outline=dark, width=6)
-    elif species in ("cat","fox","dog","bear","lion"):
-        for side in (-1,1):
-            ex=x+side*105
-            draw.ellipse((ex-48,y-230,ex+48,y-85), fill=fur, outline=dark, width=6)
+        draw.ellipse((x-105,head_y-300,x-35,head_y-65), fill=fur, outline=dark, width=6)
+        draw.ellipse((x+35,head_y-300,x+105,head_y-65), fill=fur, outline=dark, width=6)
+        draw.ellipse((x-82,head_y-270,x-55,head_y-95), fill="#F4A9B8")
+        draw.ellipse((x+55,head_y-270,x+82,head_y-95), fill="#F4A9B8")
+    elif species in ("cat","fox","lion"):
+        draw.polygon([(x-115,head_y-55),(x-95,head_y-190),(x-15,head_y-105)], fill=fur, outline=dark)
+        draw.polygon([(x+15,head_y-105),(x+95,head_y-190),(x+115,head_y-55)], fill=fur, outline=dark)
+        if species == "fox":
+            draw.polygon([(x-110,head_y-75),(x-95,head_y-165),(x-48,head_y-110)], fill="#F4B5A0")
+            draw.polygon([(x+48,head_y-110),(x+95,head_y-165),(x+110,head_y-75)], fill="#F4B5A0")
+    elif species == "dog":
+        draw.ellipse((x-155,head_y-90,x-85,head_y+55), fill="#A96E43", outline=dark, width=5)
+        draw.ellipse((x+85,head_y-90,x+155,head_y+55), fill="#A96E43", outline=dark, width=5)
+    elif species == "bear":
+        draw.ellipse((x-145,head_y-145,x-55,head_y-55), fill=fur, outline=dark, width=5)
+        draw.ellipse((x+55,head_y-145,x+145,head_y-55), fill=fur, outline=dark, width=5)
     elif species == "panda":
-        for side in (-1,1):
-            ex=x+side*105
-            draw.ellipse((ex-42,y-190,ex+42,y-100), fill=dark)
-            draw.ellipse((x+side*60-35,y-20,x+side*60+35,y+65), fill=dark)
+        draw.ellipse((x-120,head_y-95,x-35,head_y+5), fill=dark)
+        draw.ellipse((x+35,head_y-95,x+120,head_y+5), fill=dark)
+    elif species == "duck":
+        draw.ellipse((x-150,head_y-85,x-80,head_y+25), fill=fur, outline=dark, width=4)
+        draw.ellipse((x+80,head_y-85,x+150,head_y+25), fill=fur, outline=dark, width=4)
+    # Eyes blink briefly; eye direction shifts with the scene.
+    blink = (frame_no % 97) < 5
+    eye_y = head_y-15
     for side in (-1,1):
-        ex=x+side*55
-        draw.ellipse((ex-12,y-8,ex+12,y+18), fill=dark)
-    draw.ellipse((x-58,y+38,x+58,y+115), fill="#F5D7B8", outline=dark, width=4)
-    draw.ellipse((x-12,y+58,x+12,y+78), fill=dark)
-    draw.arc((x-35,y+65,x+35,y+125), 5, 175, fill=dark, width=5)
-    f=font(28,True)
-    tw=draw.textbbox((0,0),name,font=f)[2]
-    draw.rounded_rectangle((x-tw//2-16,y+375,x+tw//2+16,y+425), radius=15, fill="white", outline=dark, width=3)
-    draw.text((x-tw//2,y+382),name,font=f,fill=dark)
+        ex = x+side*52
+        if blink:
+            draw.line((ex-15,eye_y,ex+15,eye_y), fill=dark, width=7)
+        else:
+            draw.ellipse((ex-18,eye_y-23,ex+18,eye_y+24), fill="white", outline=dark, width=3)
+            draw.ellipse((ex-7,eye_y-8,ex+8,eye_y+13), fill=dark)
+            draw.ellipse((ex-3,eye_y-7,ex+2,eye_y-2), fill="white")
+    # Muzzle and talking mouth.
+    if species == "duck":
+        draw.polygon([(x-35,head_y+35),(x+35,head_y+35),(x,head_y+75)], fill="#F28A35", outline=dark)
+    else:
+        draw.ellipse((x-55,head_y+25,x+55,head_y+105), fill=cream, outline=dark, width=3)
+        draw.ellipse((x-13,head_y+38,x+13,head_y+58), fill=dark)
+        mouth_open = int((math.sin(t*11+character_index)>0.15)*18)
+        draw.ellipse((x-17,head_y+65,x+17,head_y+83+mouth_open), fill="#9D4050")
+    # Name tag.
+    tag_y = y+300
+    draw.rounded_rectangle((x-100,tag_y,x+100,tag_y+48), radius=18, fill="#FFFFFF", outline=dark, width=3)
+    f = font(26,True)
+    box = draw.textbbox((0,0),name,font=f)
+    draw.text((x-(box[2]-box[0])/2,tag_y+8),name,font=f,fill=dark)
 
 
-def render_frame(story, scene, index, path):
-    colors=[("#F9DDB2","#F2B8A0"),("#CBE8E3","#A9D2C8"),("#E5D8F4","#C5B4E8"),
-            ("#F7E7A7","#F4C76B"),("#D6E6F7","#A9C8EA"),("#F5D2D7","#ECAEB9")]
-    top,bottom=colors[index%len(colors)]
-    im=Image.new("RGB",(W,H),top); d=ImageDraw.Draw(im)
-    d.rectangle((0,1180,W,H),fill=bottom)
-    for i in range(8):
-        x=(i*161+index*47)%W; y=260+(i%3)*180
-        d.ellipse((x-28,y-28,x+28,y+28),fill="#FFFFFF")
-    d.rounded_rectangle((55,55,W-55,190),radius=35,fill="#202A44")
-    d.text((90,78),"FUNNY ANIMALS",font=font(58,True),fill="white")
-    d.text((92,145),f"ORIGINAL COMEDY  •  SCENE {index+1}/6",font=font(25,True),fill="#FFD85A")
-    cue=wrap(d,scene["visual"],font(30,True),900)[:2]
-    yy=245
-    for line in cue:
-        d.text((80,yy),line,font=font(30,True),fill="#26344D"); yy+=43
-    c=story["characters"]
-    animal(d,320,850,c[0]["species"],c[0]["name"],index)
-    animal(d,760,850,c[1]["species"],c[1]["name"],index+1)
-    d.text((470,510),"?!" if index%2==0 else "★",font=font(100,True),fill="#F06B48",stroke_width=3,stroke_fill="white")
-    lines=wrap(d,scene["narration"],font(42,True),850)[:4]
-    panel_top=1450
-    d.rounded_rectangle((55,panel_top,W-55, min(H-55,panel_top+110+len(lines)*58)),
-                        radius=32,fill="#202A44",outline="white",width=5)
-    yy=panel_top+35
+def draw_story_prop(draw, index, frame_no, t):
+    bounce = int(math.sin(t*6)*12)
+    ink = "#263047"
+    if index == 0:
+        # Biscuit and plate.
+        draw.ellipse((385,1160,695,1235), fill="#FFFFFF", outline=ink, width=7)
+        draw.ellipse((435,1140+bounce,645,1210+bounce), fill="#D99A52", outline="#8B542C", width=6)
+        for x,y in [(490,1170),(545,1160),(590,1180)]:
+            draw.ellipse((x-7,y-7+bounce,x+7,y+7+bounce), fill="#70452D")
+    elif index == 1:
+        # Oversized detective magnifying glass.
+        draw.ellipse((455,650,620,815), fill="#BDEBFA", outline=ink, width=13)
+        draw.line((590,790,690,900), fill="#8A5837", width=27)
+        draw.ellipse((500,695,575,770), outline="white", width=6)
+    elif index == 2:
+        # A curving trail of crumbs.
+        for j in range(8):
+            x = 410+j*35
+            y = 1110+int(math.sin(j*0.9+t*2)*38)
+            r = 8+(j%3)*3
+            draw.ellipse((x-r,y-r,x+r,y+r), fill="#B8783D")
+    elif index == 3:
+        # The clue: a crumb with a tiny sparkle.
+        draw.ellipse((520,650,560,690), fill="#B8783D", outline=ink, width=3)
+        draw.line((540,610,540,570), fill="#FFE16B", width=8)
+        draw.line((510,630,480,610), fill="#FFE16B", width=7)
+        draw.line((570,630,600,610), fill="#FFE16B", width=7)
+    elif index == 4:
+        # Comedic surprise burst.
+        cx,cy=540,760
+        pts=[]
+        for j in range(20):
+            a=j*math.pi/10
+            r=125 if j%2==0 else 75
+            pts.append((cx+math.cos(a)*r,cy+math.sin(a)*r))
+        draw.polygon(pts, fill="#FFE16B", outline="#F28A35")
+        draw.text((cx-47,cy-55),"AHA!",font=font(55,True),fill=ink,stroke_width=2,stroke_fill="white")
+    else:
+        # Two biscuits to share.
+        for x in (455,585):
+            draw.ellipse((x-65,1130+bounce,x+65,1215+bounce), fill="#D99A52", outline="#8B542C", width=6)
+            for dx in (-25,15):
+                draw.ellipse((x+dx-6,1160+bounce,x+dx+6,1172+bounce), fill="#70452D")
+
+
+def render_frame(story, scene, index, frame_no, path):
+    t = frame_no / FPS
+    im = Image.new("RGB",(W,H),"white")
+    d = ImageDraw.Draw(im)
+    draw_background(d,index,frame_no,t)
+    # Branded title banner and scene progress.
+    d.rounded_rectangle((38,38,W-38,225),radius=42,fill="#17243C",outline="#FFFFFF",width=5)
+    d.text((78,62),"ANIMATED JUNGLE",font=font(62,True),fill="#FFE16B",stroke_width=1,stroke_fill="#17243C")
+    title = str(story.get("title","A Funny Animal Story"))[:42]
+    d.text((82,145),title,font=font(34,True),fill="white")
+    d.rounded_rectangle((850,245,1035,310),radius=25,fill="#FFE16B",outline="#17243C",width=4)
+    d.text((885,260),f"{index+1} / 6",font=font(32,True),fill="#17243C")
+    # Action cue in a clean readable card.
+    cue = wrap(d,str(scene.get("visual","A funny animal moment")),font(30,True),880)[:2]
+    d.rounded_rectangle((55,265,805,390),radius=28,fill="#FFFFFF",outline="#17243C",width=4)
+    for j,line in enumerate(cue):
+        d.text((85,285+j*42),line,font=font(30,True),fill="#263047")
+    # Character movement varies across the six story beats.
+    drift = math.sin(t*2.5+index)*22
+    chars = story["characters"]
+    draw_character(d,315-drift,1010,chars[0]["species"],chars[0]["name"],frame_no,t,0)
+    draw_character(d,765+drift,1010,chars[1]["species"],chars[1]["name"],frame_no,t,1)
+    draw_story_prop(d,index,frame_no,t)
+    # Comic motion marks emphasize the action.
+    for j in range(5):
+        x = 180+j*180
+        yy = 540 + int(18*math.sin(t*5+j))
+        d.line((x,yy,x+22,yy-32),fill="#FFF7C7",width=8)
+    # Large, high-contrast subtitles for sound-off viewing.
+    narration = str(scene.get("narration","")).strip()
+    lines = wrap(d,narration,font(39,True),900)[:3]
+    panel_h = 80 + len(lines)*54
+    panel_top = H-panel_h-55
+    d.rounded_rectangle((45,panel_top,W-45,H-55),radius=35,fill="#17243C",outline="#FFE16B",width=6)
+    d.text((82,panel_top+18),"STORY TIME",font=font(22,True),fill="#FFE16B")
+    yy = panel_top+55
     for line in lines:
-        tw=d.textbbox((0,0),line,font=font(42,True))[2]
-        d.text(((W-tw)//2,yy),line,font=font(42,True),fill="white"); yy+=58
-    d.text((70,H-90),"FOLLOW FOR MORE ANIMAL LAUGHS",font=font(25,True),fill="#202A44")
-    im.save(path,quality=94)
+        box=d.textbbox((0,0),line,font=font(39,True))
+        d.text(((W-(box[2]-box[0]))//2,yy),line,font=font(39,True),fill="white")
+        yy+=52
+    path.parent.mkdir(parents=True,exist_ok=True)
+    im.save(path,quality=88,optimize=True)
 
 
 async def speak(text, path):
@@ -345,35 +504,47 @@ async def speak(text, path):
 
 
 def render_video(story):
-    for cmd in ("ffmpeg","ffprobe"): run([cmd,"-version"])
+    for cmd in ("ffmpeg","ffprobe"):
+        run([cmd,"-version"])
     WORK.mkdir(exist_ok=True); OUTPUT.mkdir(exist_ok=True)
     for p in WORK.iterdir():
-        if p.is_file(): p.unlink()
+        if p.is_file():
+            p.unlink()
     segments=[]
     for i,scene in enumerate(story["scenes"]):
-        frame=WORK/f"scene_{i}.jpg"; audio=WORK/f"voice_{i}.mp3"; segment=WORK/f"segment_{i}.mp4"
-        render_frame(story,scene,i,frame)
+        frame_dir=WORK/f"scene_{i}_frames"
+        if frame_dir.exists():
+            for old in frame_dir.glob("*.jpg"):
+                old.unlink()
+        frame_dir.mkdir(parents=True,exist_ok=True)
+        audio=WORK/f"voice_{i}.mp3"
+        segment=WORK/f"segment_{i}.mp4"
         asyncio.run(speak(scene["narration"],audio))
-        seconds=float(run(["ffprobe","-v","error","-show_entries","format=duration",
-                           "-of","default=noprint_wrappers=1:nokey=1",str(audio)]))
-        seconds=max(3.0,seconds+0.25)
-        run(["ffmpeg","-y","-loop","1","-framerate",str(FPS),"-i",str(frame),"-i",str(audio),
-             "-t",f"{seconds:.2f}","-vf","scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.001,1.08)':d=1:s=1080x1920:fps=30,format=yuv420p",
-             "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf","23","-c:a","aac",
-             "-b:a","128k","-shortest",str(segment)])
+        audio_seconds=float(run(["ffprobe","-v","error","-show_entries","format=duration",
+                                 "-of","default=noprint_wrappers=1:nokey=1",str(audio)]))
+        seconds=max(3.8,audio_seconds+0.45)
+        frame_count=int(math.ceil(seconds*FPS))
+        for frame_no in range(frame_count):
+            render_frame(story,scene,i,frame_no,frame_dir/f"frame_{frame_no+1:04d}.jpg")
+        run(["ffmpeg","-y","-framerate",str(FPS),"-i",str(frame_dir/"frame_%04d.jpg"),
+             "-i",str(audio),"-t",f"{seconds:.2f}","-vf","format=yuv420p",
+             "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf","22",
+             "-c:a","aac","-b:a","128k","-shortest",str(segment)])
         segments.append(segment)
     concat=WORK/"concat.txt"
     concat.write_text("".join(f"file '{p.as_posix()}'\n" for p in segments),encoding="utf-8")
     slug=re.sub(r"[^a-z0-9]+","-",story["title"].lower()).strip("-")[:30] or "animal-comedy"
     out=OUTPUT/f"funny-animals-{datetime.now(timezone.utc):%Y%m%d}-{slug}.mp4"
-    run(["ffmpeg","-y","-f","concat","-safe","0","-i",str(concat),"-c","copy","-movflags","+faststart",str(out)])
+    run(["ffmpeg","-y","-f","concat","-safe","0","-i",str(concat),
+         "-c:v","libx264","-preset","veryfast","-crf","22","-c:a","aac",
+         "-b:a","128k","-movflags","+faststart",str(out)])
     info=json.loads(run(["ffprobe","-v","error","-show_entries","format=duration,size:stream=codec_type,codec_name,width,height",
                          "-of","json",str(out)]))
     v=next((s for s in info.get("streams",[]) if s.get("codec_type")=="video"),None)
     duration=float(info["format"]["duration"])
     if not v or (v.get("width"),v.get("height"))!=(W,H) or not 12<=duration<=180:
         raise RuntimeError("Final MP4 failed dimensions or duration validation.")
-    log.info("Rendered %s (%.1f seconds)",out,duration)
+    log.info("Rendered animated video %s (%.1f seconds)",out,duration)
     return out
 
 
@@ -502,11 +673,19 @@ def validate():
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--validate",action="store_true")
+    parser.add_argument("--preview",action="store_true",
+                        help="Generate a local animated preview only; does not upload or contact Buffer.")
     parser.add_argument("--upload-test",action="store_true",
                         help="Test Cloudinary image upload only; does not generate video or contact Buffer.")
     parser.add_argument("--video-upload-test",action="store_true",
                         help="Test Cloudinary video upload only; does not contact Buffer or publish.")
     args=parser.parse_args()
+    if args.preview:
+        story=make_story()
+        log.info("Preview story: %s",story["title"])
+        video=render_video(story)
+        log.info("PREVIEW_ONLY: video saved locally at %s; no Cloudinary upload or Buffer post.",video)
+        return
     if args.video_upload_test:
         video_upload_test(); return
     if args.upload_test:
