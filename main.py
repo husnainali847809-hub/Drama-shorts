@@ -1,4 +1,4 @@
-import argparse, asyncio, base64, json, logging, os, re, subprocess, sys
+import argparse, asyncio, base64, json, logging, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -108,9 +108,49 @@ Return ONLY valid JSON in this shape:
 "scenes":[{"visual":"short visual cue","narration":"12-24 spoken words"}]}
 Exactly 2 characters and exactly 6 scenes. Keep species and names consistent.
 Narration must be short, natural spoken dialogue/story, without stage directions."""
-    response = client.models.generate_content(
-        model=MODEL, contents=prompt,
-        config={"response_mime_type":"application/json", "temperature":0.9})
+    # Retry temporary Gemini capacity/server errors, then use a stable backup model.
+    models_to_try = [MODEL]
+    backup_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.7-flash").strip()
+    if backup_model and backup_model != MODEL:
+        models_to_try.append(backup_model)
+
+    response = None
+    last_error = None
+    for model_name in models_to_try:
+        for attempt in range(3):
+            try:
+                log.info("Generating story with Gemini model: %s (attempt %s/3)",
+                         model_name, attempt + 1)
+                response = client.models.generate_content(
+                    model=model_name, contents=prompt,
+                    config={"response_mime_type":"application/json", "temperature":0.9})
+                log.info("Story generated successfully with: %s", model_name)
+                break
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).upper()
+                status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+                temporary = status in (429, 500, 502, 503, 504) or any(
+                    marker in message for marker in
+                    ("429", "500", "502", "503", "504", "UNAVAILABLE",
+                     "RESOURCE_EXHAUSTED", "INTERNAL", "DEADLINE_EXCEEDED"))
+                if not temporary:
+                    raise
+                if attempt < 2:
+                    delay = 5 * (2 ** attempt)
+                    log.warning("Temporary Gemini error on %s: %s. Retrying in %s seconds.",
+                                model_name, exc, delay)
+                    time.sleep(delay)
+                else:
+                    log.warning("Gemini model %s failed after 3 attempts.", model_name)
+        if response is not None:
+            break
+
+    if response is None:
+        raise RuntimeError(
+            "Gemini primary and fallback models both failed after retries. "
+            "No video was generated or queued."
+        ) from last_error
     story = json.loads(response.text)
     if len(story.get("characters", [])) != 2 or len(story.get("scenes", [])) != 6:
         raise RuntimeError("Gemini story must have exactly two characters and six scenes.")
