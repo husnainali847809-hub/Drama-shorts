@@ -321,7 +321,7 @@ def render_video(story):
     slug=re.sub(r"[^a-z0-9]+","-",story["title"].lower()).strip("-")[:30] or "animal-comedy"
     out=OUTPUT/f"funny-animals-{datetime.now(timezone.utc):%Y%m%d}-{slug}.mp4"
     run(["ffmpeg","-y","-f","concat","-safe","0","-i",str(concat),"-c","copy","-movflags","+faststart",str(out)])
-    info=json.loads(run(["ffprobe","-v","error","-show_entries","format=duration,size:stream=codec_name,width,height",
+    info=json.loads(run(["ffprobe","-v","error","-show_entries","format=duration,size:stream=codec_type,codec_name,width,height",
                          "-of","json",str(out)]))
     v=next((s for s in info.get("streams",[]) if s.get("codec_type")=="video"),None)
     duration=float(info["format"]["duration"])
