@@ -550,7 +550,7 @@ def render_video(story):
         frame_count=int(math.ceil(seconds*FPS))
         for frame_no in range(frame_count):
             render_frame(story,scene,i,frame_no,frame_dir/f"frame_{frame_no+1:04d}.jpg")
-        run(["ffmpeg","-y","-framerate",str(FPS),"-i",str(frame_dir/"frame_%04d.jpg"),
+        run(["ffmpeg","-y","-framerate",str(FPS),"-start_number","1","-i",str(frame_dir/"frame_%04d.jpg"),
              "-i",str(audio),"-t",f"{seconds:.2f}","-vf","format=yuv420p",
              "-r",str(FPS),"-c:v","libx264","-preset","veryfast","-crf","22",
              "-c:a","aac","-b:a","128k","-shortest",str(segment)])
