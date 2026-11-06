@@ -4,7 +4,6 @@ from pathlib import Path
 from urllib.parse import quote
 
 import cloudinary, cloudinary.uploader, edge_tts, requests
-from google import genai
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
@@ -142,11 +141,12 @@ def local_story_fallback():
     ]
     day_number = datetime.now(timezone.utc).date().toordinal()
     story = stories[day_number % len(stories)]
-    log.warning("Gemini unavailable after retries; using built-in local story fallback.")
+    log.warning("OpenRouter unavailable; using built-in local story fallback.")
     return json.loads(json.dumps(story))
 
 def make_story():
-    client = genai.Client(api_key=need("GEMINI_API_KEY"))
+    """Generate a safe six-scene story through OpenRouter, with a local fallback."""
+    api_key = need("OPENROUTER_API_KEY")
     prompt = """Write an original, harmless, family-friendly animal comedy story in English.
 No cruelty, violence, dangerous stunts, frightening scenes, copyrighted characters,
 brands, celebrities or impersonations. Make it funny and understandable without sound.
@@ -156,61 +156,102 @@ Return ONLY valid JSON in this shape:
 "scenes":[{"visual":"short visual cue","narration":"12-24 spoken words"}]}
 Exactly 2 characters and exactly 6 scenes. Keep species and names consistent.
 Narration must be short, natural spoken dialogue/story, without stage directions."""
-    # Retry temporary Gemini capacity/server errors, then use a stable backup model.
-    models_to_try = [MODEL]
-    backup_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.7-flash").strip()
-    if backup_model and backup_model != MODEL:
-        models_to_try.append(backup_model)
 
-    response = None
-    last_error = None
-    for model_name in models_to_try:
-        for attempt in range(3):
-            try:
-                log.info("Generating story with Gemini model: %s (attempt %s/3)",
-                         model_name, attempt + 1)
-                response = client.models.generate_content(
-                    model=model_name, contents=prompt,
-                    config={"response_mime_type":"application/json", "temperature":0.9})
-                log.info("Story generated successfully with: %s", model_name)
-                break
-            except Exception as exc:
-                last_error = exc
-                message = str(exc).upper()
-                status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-                temporary = status in (429, 500, 502, 503, 504) or any(
-                    marker in message for marker in
-                    ("429", "500", "502", "503", "504", "UNAVAILABLE",
-                     "RESOURCE_EXHAUSTED", "INTERNAL", "DEADLINE_EXCEEDED"))
-                if not temporary:
-                    raise
-                if attempt < 2:
-                    delay = 5 * (2 ** attempt)
-                    log.warning("Temporary Gemini error on %s: %s. Retrying in %s seconds.",
-                                model_name, exc, delay)
-                    time.sleep(delay)
-                else:
-                    log.warning("Gemini model %s failed after 3 attempts.", model_name)
-        if response is not None:
+    response_text = None
+    for attempt in range(3):
+        try:
+            log.info("Generating story with OpenRouter free router (attempt %s/3)", attempt + 1)
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "X-Title": "Animated Jungle"
+                },
+                json={
+                    "model": "openrouter/free",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.9,
+                    "max_tokens": 1800
+                },
+                timeout=90
+            )
+            if response.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(
+                    f"Temporary OpenRouter error {response.status_code}: {response.text[:500]}",
+                    response=response
+                )
+            response.raise_for_status()
+            payload = response.json()
+            response_text = payload["choices"][0]["message"]["content"]
+            if isinstance(response_text, list):
+                response_text = "".join(
+                    part.get("text", "") for part in response_text
+                    if isinstance(part, dict)
+                )
+            if not isinstance(response_text, str) or not response_text.strip():
+                raise ValueError("OpenRouter returned an empty story.")
             break
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status not in (429, 500, 502, 503, 504):
+                raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
+            if attempt == 2:
+                log.warning("OpenRouter remained unavailable after retries: %s", exc)
+            else:
+                delay = 5 * (2 ** attempt)
+                log.warning("Temporary OpenRouter error; retrying in %s seconds.", delay)
+                time.sleep(delay)
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if attempt == 2:
+                log.warning("OpenRouter connection failed after retries: %s", exc)
+            else:
+                delay = 5 * (2 ** attempt)
+                log.warning("OpenRouter connection issue; retrying in %s seconds.", delay)
+                time.sleep(delay)
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            if attempt == 2:
+                log.warning("OpenRouter returned an unusable response: %s", exc)
+            else:
+                log.warning("OpenRouter response was unusable; retrying.")
+                time.sleep(5 * (2 ** attempt))
 
-    if response is None:
+    if response_text is None:
         return local_story_fallback()
-    story = json.loads(response.text)
-    if len(story.get("characters", [])) != 2 or len(story.get("scenes", [])) != 6:
-        raise RuntimeError("Gemini story must have exactly two characters and six scenes.")
-    for c in story["characters"]:
-        c["name"] = str(c.get("name","Pal"))[:24]
-        c["species"] = str(c.get("species","cat")).lower()[:20]
-    for s in story["scenes"]:
-        s["visual"] = str(s.get("visual","A silly animal moment"))[:150]
-        s["narration"] = str(s.get("narration","")).strip()[:350]
-        if not s["narration"]:
-            raise RuntimeError("Gemini returned an empty narration scene.")
-    story["title"] = str(story.get("title","A Silly Animal Day"))[:70]
-    story["caption"] = str(story.get("caption","A little animal chaos! #FunnyAnimals"))[:450]
-    return story
 
+    # Accept JSON wrapped in Markdown fences, while rejecting non-JSON output.
+    cleaned = response_text.strip()
+    cleaned = re.sub(r"^\`\`\`(?:json)?\\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\\s*\`\`\`$", "", cleaned)
+    first, last = cleaned.find("{"), cleaned.rfind("}")
+    if first < 0 or last <= first:
+        log.warning("OpenRouter did not return a JSON object; using local story.")
+        return local_story_fallback()
+    try:
+        story = json.loads(cleaned[first:last + 1])
+    except json.JSONDecodeError:
+        log.warning("OpenRouter returned invalid JSON; using local story.")
+        return local_story_fallback()
+
+    if not isinstance(story, dict) or len(story.get("characters", [])) != 2 or len(story.get("scenes", [])) != 6:
+        log.warning("OpenRouter story did not contain exactly two characters and six scenes; using local story.")
+        return local_story_fallback()
+    for c in story["characters"]:
+        if not isinstance(c, dict):
+            return local_story_fallback()
+        c["name"] = str(c.get("name", "Pal"))[:24]
+        c["species"] = str(c.get("species", "cat")).lower()[:20]
+    for s in story["scenes"]:
+        if not isinstance(s, dict):
+            return local_story_fallback()
+        s["visual"] = str(s.get("visual", "A silly animal moment"))[:150]
+        s["narration"] = str(s.get("narration", "")).strip()[:350]
+        if not s["narration"]:
+            return local_story_fallback()
+    story["title"] = str(story.get("title", "A Silly Animal Day"))[:70]
+    story["caption"] = str(story.get("caption", "A little animal chaos! #FunnyAnimals"))[:450]
+    log.info("Story generated successfully with OpenRouter.")
+    return story
 
 def font(size, bold=False):
     p = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -376,7 +417,7 @@ def queue_reel(video_url,caption):
 
 
 def validate():
-    for key in ("GEMINI_API_KEY","CLOUDINARY_CLOUD_NAME","CLOUDINARY_API_KEY","CLOUDINARY_API_SECRET"):
+    for key in ("OPENROUTER_API_KEY","CLOUDINARY_CLOUD_NAME","CLOUDINARY_API_KEY","CLOUDINARY_API_SECRET"):
         need(key)
     verify_channel()
     run(["ffmpeg","-version"]); run(["ffprobe","-version"])
