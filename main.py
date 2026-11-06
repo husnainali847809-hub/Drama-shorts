@@ -410,50 +410,74 @@ def draw_character(draw, x, base_y, species, name, frame_no, t, character_index)
     draw.text((x-(box[2]-box[0])/2,tag_y+8),name,font=f,fill=dark)
 
 
-def draw_story_prop(draw, index, frame_no, t):
+def draw_story_prop(draw, story, scene, index, frame_no, t):
     bounce = int(math.sin(t*6)*12)
     ink = "#263047"
-    if index == 0:
-        # Biscuit and plate.
-        draw.ellipse((385,1160,695,1235), fill="#FFFFFF", outline=ink, width=7)
-        draw.ellipse((435,1140+bounce,645,1210+bounce), fill="#D99A52", outline="#8B542C", width=6)
-        for x,y in [(490,1170),(545,1160),(590,1180)]:
-            draw.ellipse((x-7,y-7+bounce,x+7,y+7+bounce), fill="#70452D")
-    elif index == 1:
-        # Oversized detective magnifying glass.
-        draw.ellipse((455,650,620,815), fill="#BDEBFA", outline=ink, width=13)
-        draw.line((590,790,690,900), fill="#8A5837", width=27)
-        draw.ellipse((500,695,575,770), outline="white", width=6)
-    elif index == 2:
-        # A curving trail of crumbs.
-        for j in range(8):
-            x = 410+j*35
-            y = 1110+int(math.sin(j*0.9+t*2)*38)
-            r = 8+(j%3)*3
-            draw.ellipse((x-r,y-r,x+r,y+r), fill="#B8783D")
-    elif index == 3:
-        # The clue: a crumb with a tiny sparkle.
-        draw.ellipse((520,650,560,690), fill="#B8783D", outline=ink, width=3)
-        draw.line((540,610,540,570), fill="#FFE16B", width=8)
-        draw.line((510,630,480,610), fill="#FFE16B", width=7)
-        draw.line((570,630,600,610), fill="#FFE16B", width=7)
-    elif index == 4:
-        # Comedic surprise burst.
-        cx,cy=540,760
-        pts=[]
-        for j in range(20):
-            a=j*math.pi/10
-            r=125 if j%2==0 else 75
-            pts.append((cx+math.cos(a)*r,cy+math.sin(a)*r))
-        draw.polygon(pts, fill="#FFE16B", outline="#F28A35")
-        draw.text((cx-47,cy-55),"AHA!",font=font(55,True),fill=ink,stroke_width=2,stroke_fill="white")
+    title = str(story.get("title","")).lower()
+    cue = str(scene.get("visual","")).lower()
+    if "dance" in title:
+        # Dance-class props: music notes, floor markers and a colorful scarf.
+        draw.rounded_rectangle((355,1120,725,1200),radius=30,fill="#F7D66B",outline=ink,width=7)
+        for x in (430,535,640):
+            draw.ellipse((x-20,1170+bounce,x+20,1210+bounce),fill="#F28A65",outline=ink,width=4)
+        draw.arc((455,630,625,800),180,350,fill="#FFFFFF",width=13)
+        draw.ellipse((570,635,610,675),fill="#FFFFFF")
+        draw.line((610,655,610,770),fill="#FFFFFF",width=12)
+        draw.arc((620,700,760,835),190,350,fill="#FFE16B",width=13)
+        draw.text((470,850),"♪",font=font(110,True),fill="#FFE16B",stroke_width=3,stroke_fill=ink)
+    elif "garden" in title:
+        # Gardening props change as the seed grows across the story.
+        draw.rounded_rectangle((370,1125,710,1240),radius=28,fill="#8B583A",outline=ink,width=7)
+        if index >= 1:
+            draw.line((700,700,640,1030),fill="#70C8F4",width=17)
+            draw.arc((600,650,780,810),180,350,fill="#70C8F4",width=15)
+        if index >= 3:
+            draw.line((540,1140,540,920),fill="#348B4B",width=17)
+            draw.ellipse((470,930,550,1000),fill="#57B96A",outline=ink,width=4)
+            draw.ellipse((535,875,620,950),fill="#78D17A",outline=ink,width=4)
+        if index >= 4:
+            draw.ellipse((490,820,590,920),fill="#FFE16B",outline="#E59A3C",width=6)
+            for a in range(8):
+                angle=a*math.pi/4
+                px=540+math.cos(angle)*75; py=870+math.sin(angle)*75
+                draw.ellipse((px-25,py-25,px+25,py+25),fill="#F58FB1",outline=ink,width=3)
+        else:
+            draw.ellipse((515,1090,565,1140),fill="#D8A24D",outline=ink,width=4)
     else:
-        # Two biscuits to share.
-        for x in (455,585):
-            draw.ellipse((x-65,1130+bounce,x+65,1215+bounce), fill="#D99A52", outline="#8B542C", width=6)
-            for dx in (-25,15):
-                draw.ellipse((x+dx-6,1160+bounce,x+dx+6,1172+bounce), fill="#70452D")
-
+        if index == 0:
+            draw.ellipse((385,1160,695,1235), fill="#FFFFFF", outline=ink, width=7)
+            draw.ellipse((435,1140+bounce,645,1210+bounce), fill="#D99A52", outline="#8B542C", width=6)
+            for x,y in [(490,1170),(545,1160),(590,1180)]:
+                draw.ellipse((x-7,y-7+bounce,x+7,y+7+bounce), fill="#70452D")
+        elif index == 1:
+            draw.ellipse((455,650,620,815), fill="#BDEBFA", outline=ink, width=13)
+            draw.line((590,790,690,900), fill="#8A5837", width=27)
+            draw.ellipse((500,695,575,770), outline="white", width=6)
+        elif index == 2:
+            for j in range(8):
+                x = 410+j*35
+                y = 1110+int(math.sin(j*0.9+t*2)*38)
+                r = 8+(j%3)*3
+                draw.ellipse((x-r,y-r,x+r,y+r), fill="#B8783D")
+        elif index == 3:
+            draw.ellipse((520,650,560,690), fill="#B8783D", outline=ink, width=3)
+            draw.line((540,610,540,570), fill="#FFE16B", width=8)
+            draw.line((510,630,480,610), fill="#FFE16B", width=7)
+            draw.line((570,630,600,610), fill="#FFE16B", width=7)
+        elif index == 4:
+            cx,cy=540,760
+            pts=[]
+            for j in range(20):
+                a=j*math.pi/10
+                r=125 if j%2==0 else 75
+                pts.append((cx+math.cos(a)*r,cy+math.sin(a)*r))
+            draw.polygon(pts, fill="#FFE16B", outline="#F28A35")
+            draw.text((cx-47,cy-55),"AHA!",font=font(55,True),fill=ink,stroke_width=2,stroke_fill="white")
+        else:
+            for x in (455,585):
+                draw.ellipse((x-65,1130+bounce,x+65,1215+bounce), fill="#D99A52", outline="#8B542C", width=6)
+                for dx in (-25,15):
+                    draw.ellipse((x+dx-6,1160+bounce,x+dx+6,1172+bounce), fill="#70452D")
 
 def render_frame(story, scene, index, frame_no, path):
     t = frame_no / FPS
@@ -477,7 +501,7 @@ def render_frame(story, scene, index, frame_no, path):
     chars = story["characters"]
     draw_character(d,315-drift,1010,chars[0]["species"],chars[0]["name"],frame_no,t,0)
     draw_character(d,765+drift,1010,chars[1]["species"],chars[1]["name"],frame_no,t,1)
-    draw_story_prop(d,index,frame_no,t)
+    draw_story_prop(d,story,scene,index,frame_no,t)
     # Comic motion marks emphasize the action.
     for j in range(5):
         x = 180+j*180
