@@ -1,4 +1,4 @@
-import argparse, asyncio, base64, json, logging, os, re, subprocess, sys, time
+import argparse, asyncio, base64, io, json, logging, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -393,6 +393,37 @@ def upload_video(path):
     return url
 
 
+def upload_test():
+    """Verify Cloudinary upload permission with a tiny temporary image; never contacts Buffer."""
+    cloudinary.config(cloud_name=need("CLOUDINARY_CLOUD_NAME"),
+                      api_key=need("CLOUDINARY_API_KEY"),
+                      api_secret=need("CLOUDINARY_API_SECRET"),secure=True)
+    image = Image.new("RGB", (16, 16), color=(40, 120, 80))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    public_id = f"upload-permission-test-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"
+    result = cloudinary.uploader.upload(
+        buffer, resource_type="image",
+        folder=os.getenv("CLOUDINARY_FOLDER", "funny-animals-comedy") + "/connection-tests",
+        public_id=public_id, overwrite=False, unique_filename=False, type="upload",
+        tags=["temporary-upload-permission-test"])
+    asset_id = result.get("public_id")
+    if not asset_id or not result.get("secure_url"):
+        raise RuntimeError("Cloudinary upload response did not include the expected asset details.")
+    log.info("CLOUDINARY_UPLOAD_TEST_SUCCESS: upload/create permission is working.")
+    log.info("Temporary test asset: %s", asset_id)
+    try:
+        cleanup = cloudinary.uploader.destroy(asset_id, resource_type="image", type="upload")
+        if cleanup.get("result") == "ok":
+            log.info("Temporary test asset cleaned up successfully.")
+        else:
+            log.warning("Test upload succeeded, but cleanup was not confirmed: %s", cleanup.get("result"))
+    except Exception as exc:
+        log.warning("Test upload succeeded, but temporary asset cleanup failed: %s", exc)
+    log.info("No video was generated and Buffer was not contacted.")
+
+
 def queue_reel(video_url,caption):
     channel=verify_channel()
     channel_id=need("BUFFER_CHANNEL_ID")
@@ -432,7 +463,11 @@ def validate():
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--validate",action="store_true")
+    parser.add_argument("--upload-test",action="store_true",
+                        help="Test Cloudinary image upload only; does not generate video or contact Buffer.")
     args=parser.parse_args()
+    if args.upload_test:
+        upload_test(); return
     if args.validate:
         validate(); return
     today=datetime.now(timezone.utc).date().isoformat()
