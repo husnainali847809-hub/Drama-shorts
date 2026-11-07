@@ -13,13 +13,6 @@ log = logging.getLogger("longform_cartoon")
 
 
 def run():
-    try:
-        minutes = int(os.getenv("CARTOON_DURATION_MINUTES", "7"))
-    except ValueError as exc:
-        raise RuntimeError("CARTOON_DURATION_MINUTES must be 5, 7, or 10.") from exc
-    if minutes not in (5, 7, 10):
-        raise RuntimeError("CARTOON_DURATION_MINUTES must be 5, 7, or 10.")
-
     source_mode = os.getenv("CARTOON_SOURCE_MODE", "licensed").strip().lower()
     if source_mode != "licensed":
         raise RuntimeError(
@@ -36,8 +29,8 @@ def run():
     core.verify_channel()
     from licensed_source import build_licensed_video
 
-    video, title, caption = build_licensed_video(minutes)
-    log.info("Preparing rights-reviewed internet cartoon: %s", title)
+    video, title, caption = build_licensed_video()
+    log.info("Preparing complete rights-reviewed cartoon video: %s", title)
     public_url = core.upload_video(video)
     post = core.queue_reel(public_url, caption, post_type="post")
     core.write_state(today, sha)
