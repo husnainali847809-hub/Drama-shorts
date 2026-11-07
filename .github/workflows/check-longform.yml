@@ -7,6 +7,7 @@ on:
       - 'main.py'
       - 'longform.py'
       - 'licensed_source.py'
+      - 'discover_content.py'
       - 'licensed_assets.json'
       - 'requirements.txt'
       - '.github/workflows/check-longform.yml'
@@ -31,8 +32,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Compile Python modules
-        run: python -m py_compile main.py longform.py licensed_source.py
+        run: python -m py_compile main.py longform.py licensed_source.py discover_content.py
       - name: Validate licensed asset manifest JSON
         run: python -c "import json; json.load(open('licensed_assets.json', encoding='utf-8')); print('Licensed asset manifest JSON OK.')"
       - name: Import long-form generator without credentials
-        run: python -c "import longform, licensed_source; print('Long-form and licensed-source modules import OK; no upload or publishing performed.')"
+        run: python -c "import longform, licensed_source, discover_content; print('Publisher, licensed-source and discovery modules import OK; no upload or publishing performed.')"
