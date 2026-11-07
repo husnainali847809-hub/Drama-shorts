@@ -97,7 +97,7 @@ def _download(url, destination):
     log.info("Downloaded reviewed source video: %.1f MB", written / 1_000_000)
 
 
-def build_licensed_video(minutes):
+def build_licensed_video():
     asset = _load_asset()
     for executable in ("ffmpeg", "ffprobe"):
         core.run([executable, "-version"])
@@ -110,8 +110,8 @@ def build_licensed_video(minutes):
                                  "-of", "json", str(source)]))
     duration = float(probe.get("format", {}).get("duration", 0))
     video_stream = next((s for s in probe.get("streams", []) if s.get("codec_type") == "video"), None)
-    if not video_stream or not (minutes * 60 * 0.90 <= duration <= minutes * 60 * 1.15):
-        raise RuntimeError(f"Licensed source duration must be close to {minutes} minutes; received {duration/60:.1f} minutes.")
+    if not video_stream or duration <= 0:
+        raise RuntimeError("Licensed source does not contain a valid full-length video stream.")
     brand = os.getenv("BUFFER_EXPECTED_CHANNEL_NAME", core.EXPECTED_PAGE).strip() or "Animated Cartoons"
     brand_file = WORK / "brand.txt"
     credit_file = WORK / "credit.txt"
@@ -128,7 +128,8 @@ def build_licensed_video(minutes):
         "drawbox=x=0:y=h-44:w=iw:h=44:color=black@0.55:t=fill,"
         f"drawtext=fontfile={font}:textfile={credit_file}:x=20:y=h-34:fontsize=17:fontcolor=white"
     )
-    core.run(["ffmpeg", "-y", "-i", str(source), "-vf", filters, "-t", f"{duration:.3f}",
+    # Keep the complete source duration; do not trim it to a short clip or fixed target.
+    core.run(["ffmpeg", "-y", "-i", str(source), "-vf", filters,
               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
               "-threads", "2", "-c:a", "aac", "-b:a", "128k",
               "-movflags", "+faststart", str(output)])
@@ -140,8 +141,8 @@ def build_licensed_video(minutes):
     final_video = next((s for s in final.get("streams", []) if s.get("codec_type") == "video"), None)
     if not final_video or (final_video.get("width"), final_video.get("height")) != (1280, 720):
         raise RuntimeError("Branded licensed video failed 1280x720 output validation.")
-    if not (minutes * 60 * 0.90 <= final_duration <= minutes * 60 * 1.15):
-        raise RuntimeError("Branded licensed video duration changed outside the selected target.")
+    if final_duration <= 0 or final_duration < duration * 0.98:
+        raise RuntimeError("The processed video appears shorter than the complete source; refusing to publish a trimmed version.")
     if final_size > MAX_BYTES:
         raise RuntimeError("Branded licensed video exceeds the 950 MB upload limit.")
     attribution = str(asset["attribution"]).strip()
@@ -160,6 +161,6 @@ def build_licensed_video(minutes):
         f"{share_alike}\n\n"
         "#Cartoon #Animation #AnimatedStories"
     )
-    log.info("Licensed source prepared: %s (%.1f minutes). Rights metadata was manually supplied; not independently certified by the software.",
+    log.info("Complete licensed source prepared: %s (%.1f minutes). Rights metadata was manually supplied; not independently certified by the software.",
              asset["title"], final_duration / 60)
     return output, str(asset["title"])[:80], caption[:1800]
