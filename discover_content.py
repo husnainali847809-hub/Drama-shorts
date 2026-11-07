@@ -266,7 +266,8 @@ def write_report(report):
         ])
     if not report["popular_story_source_candidates"]:
         lines.append("No story records were returned.")
-        lines.append("")    lines.extend(["", "## Source errors", ""])
+        lines.append("")
+    lines.extend(["", "## Source errors", ""])
     if report["source_errors"]:
         for error in report["source_errors"]:
             lines.append(f"- {error['source']}: {error['error']}")
