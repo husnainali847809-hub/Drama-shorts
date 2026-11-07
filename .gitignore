@@ -1,5 +1,7 @@
-work/
+downloads/
 output/
+work/
+history.sqlite3
 __pycache__/
 *.py[cod]
 .env
