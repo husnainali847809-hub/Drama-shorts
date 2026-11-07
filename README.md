@@ -29,7 +29,17 @@ Manual workflow options:
 
 Duration options: 5, 7 or 10 minutes. The daily schedule defaults to a 7-minute story and randomly rotates its genre. The manual workflow defaults to 7 minutes and variety; you can choose a specific genre.
 
-Stories are newly generated, with two original animal characters, multiple scenes, narration and subtitles. The pipeline does **not** download other creators' cartoons or remove/replace their branding. Only original content or content with explicit reuse rights should be published.
+Stories are newly generated, with two original animal characters, multiple scenes, narration and subtitles.
+
+### Optional licensed-video mode
+
+The manual publisher has a `source_mode` selector:
+- `original` (default): generate a new cartoon story.
+- `licensed`: download one entry from `licensed_assets.json`, validate its declared rights fields, add the configured Facebook Page name and source-credit overlay, then queue it as a Facebook video post.
+
+The manifest starts empty, so licensed mode safely stops until a human adds a specific source and checks its terms. Each entry must include the creator, source page, direct video URL, license name and license URL, attribution wording, and explicit true values for `rights_verified`, `commercial_use`, `modifications_allowed`, and `worldwide_rights_confirmed`. Supported declarations are CC0-1.0, CC-BY-4.0, CC-BY-SA-4.0 and PDM-1.0. The software validates the declarations and URLs; it cannot independently prove ownership, worldwide public-domain status, or that a license applies to every element (music, characters, voices, etc.). A human must verify the exact source file and all embedded rights before adding it. Attribution is added to the Facebook caption and video overlay. The workflow does not remove creator watermarks or branding.
+
+See [docs/LICENSED_VIDEO_SOURCING.md](docs/LICENSED_VIDEO_SOURCING.md) before using licensed mode.
 
 ## Rendering and cost
 
@@ -79,6 +89,9 @@ The daily schedule is 13:00 UTC (18:00 Pakistan Standard Time). GitHub scheduled
 
 - `main.py` — existing diagnostics, Cloudinary upload, Buffer channel verification and Facebook post queueing.
 - `longform.py` — original story generation, artwork, narration, long-form rendering and upload orchestration.
+- `licensed_source.py` — rights-gated download, attribution overlay and licensed-source upload path.
+- `licensed_assets.json` — manually reviewed licensed video manifest (empty by default).
+- `docs/LICENSED_VIDEO_SOURCING.md` — source and license review instructions.
 - `.github/workflows/publish.yml` — daily schedule and manual genre/duration controls.
 - `.github/workflows/validate.yml` — non-publishing setup validation.
 - `requirements.txt` — Python dependencies.
