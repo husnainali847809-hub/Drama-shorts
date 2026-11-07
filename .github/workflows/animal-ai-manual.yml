@@ -1,0 +1,44 @@
+name: AI Animal Pilot — Manual Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode:
+        description: "Pilot episode to generate"
+        required: true
+        type: choice
+        options:
+          - timo-bunny-friendship
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Python and FFmpeg
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Generate original animal pilot
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+        run: python main.py --generate --pilot
+      - name: Upload review-only video
+        uses: actions/upload-artifact@v4
+        with:
+          name: timo-bunny-pilot-review-only
+          path: output/animal_pilot/
+          if-no-files-found: error
+          retention-days: 7
