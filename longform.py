@@ -62,14 +62,14 @@ def wrap_text(draw, value, face, max_width):
 def generate_story(genre, minutes):
     key = core.need("OPENROUTER_API_KEY")
     scene_count = minutes * 4
-    target_words = minutes * 145
+    target_words = minutes * 165
     prompt = f"""Create a completely ORIGINAL English animated cartoon story for a worldwide Facebook audience.
 Genre: {genre}. Style: {GENRES[genre]}.
 Target runtime: {minutes} minutes of natural English narration, about {target_words} spoken words.
 Return valid JSON only in this exact shape:
 {{"title":"short original title","caption":"engaging Facebook description with 3-5 relevant hashtags",
 "characters":[{{"name":"unique name","species":"cat"}}],
-"scenes":[{{"visual":"one clear visual action, 8-18 words","narration":"spoken narration, 32-45 words"}}]}}
+"scenes":[{{"visual":"one clear visual action, 8-18 words","narration":"spoken narration, 34-55 words"}}]}}
 Requirements:
 - Exactly 2 original animal characters; keep names and species identical in every scene.
 - Exactly {scene_count} scenes, in chronological order, with a beginning, rising conflict, climax, and satisfying ending.
@@ -119,10 +119,10 @@ Return JSON only, with no markdown fences."""
                 scene["visual"] = str(scene.get("visual", "The friends explore a new place"))[:180]
                 scene["narration"] = str(scene.get("narration", "")).strip()
                 words = len(scene["narration"].split())
-                if not 25 <= words <= 65:
+                if not 34 <= words <= 55:
                     raise ValueError(f"Scene narration length outside safe range: {words} words")
                 total_words += words
-            if total_words < target_words * 0.78:
+            if total_words < target_words * 0.96:
                 raise ValueError(f"Story too short: {total_words} words; target about {target_words}")
             story["title"] = str(story.get("title", "The Hidden Valley"))[:80]
             story["caption"] = str(story.get("caption", f"An original {genre} cartoon story. #AnimatedStory"))[:450]
@@ -274,7 +274,7 @@ def render_long_video(story, genre, minutes):
     size = int(info["format"].get("size", 0))
     if not video or (video.get("width"),video.get("height")) != (WIDTH,HEIGHT):
         raise RuntimeError("Final video failed 1280x720 landscape validation.")
-    if not (minutes*60*0.82 <= duration <= minutes*60*1.20):
+    if not (minutes*60*0.90 <= duration <= minutes*60*1.15):
         raise RuntimeError(f"Final narration duration {duration/60:.1f} minutes is outside target for {minutes} minutes.")
     if size > 950_000_000:
         raise RuntimeError("Video exceeds the safe 950 MB upload limit for Buffer/Facebook.")
