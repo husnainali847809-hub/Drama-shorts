@@ -491,7 +491,8 @@ def write_report(report):
             "### " + item["title"],
             "- Creator: " + item["creator"],
             "- Declared license: " + str(item.get("license") or "Not recognized; manual review required"),
-            "- Duration seconds: " + str(item.get("duration_seconds") or "Not supplied"),
+            "- Duration seconds: " + str(item.get("duration_seconds") or "Unknown; check source player"),
+            "- Duration filter: " + str(item.get("duration_status") or "Manual check required"),
             "- Source page: " + item["source_page_url"],
             "- Video file: " + str(item.get("download_url") or "No direct video file identified"),
             "- Status: candidate only; inspect exact video and rights before use.",
@@ -585,7 +586,9 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     report = build_report(args.limit, franchise=args.franchise, story=args.story)
     json_path, md_path = write_report(report)
-    print(f"Cartoon video candidates: {len(report['cartoon_video_candidates'])}")
+    print(f"Wikimedia Commons cartoon video candidates: {len(report['cartoon_video_candidates'])}")
+    print(f"Internet Archive full-length video candidates: {len(report['internet_archive_video_candidates'])}")
+    print(f"YouTube discovery status: {report['youtube_discovery'].get('status', 'not run')}")
     print(f"Popular story candidates: {len(report['popular_story_source_candidates'])}")
     print(f"Report JSON: {json_path}")
     print(f"Report Markdown: {md_path}")
