@@ -24,11 +24,11 @@ USER_AGENT = "AnimalsAIContentDiscovery/1.1 (rights-review workflow)"
 DISCOVERY_WARNINGS = []
 SESSION = requests.Session()
 RETRY_POLICY = Retry(
-    total=4,
-    connect=4,
-    read=4,
-    status=4,
-    backoff_factor=2,
+    total=2,
+    connect=2,
+    read=1,
+    status=2,
+    backoff_factor=1,
     status_forcelist=(429, 500, 502, 503, 504),
     allowed_methods=frozenset(["GET"]),
     respect_retry_after_header=True,
@@ -95,7 +95,7 @@ def get_json(url, params=None):
             url,
             params=params,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-            timeout=(20, 60),
+            timeout=(10, 25),
         )
         response.raise_for_status()
         time.sleep(1.0)  # Be polite to public APIs and reduce HTTP 429 responses.
@@ -235,7 +235,8 @@ def build_report(limit=15, franchise="all", story="all"):
     }
     stories = []
     try:
-        stories = discover_story_sources(limit, searches=list(dict.fromkeys(story_queries + list(STORY_SEARCHES))))
+        gutenberg_queries = (story_queries if story != "all" else []) + list(STORY_SEARCHES[:3])
+        stories = discover_story_sources(limit, searches=list(dict.fromkeys(gutenberg_queries)))
         report["popular_story_source_candidates"] = stories
         logging.info("Project Gutenberg story sources: %s candidate(s)", len(stories))
     except Exception as exc:
