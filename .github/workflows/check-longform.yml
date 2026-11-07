@@ -47,6 +47,21 @@ jobs:
           assert 'Chhota Bheem' in d.REFERENCE_ONLY_FRANCHISES
           assert 'Cinderella' in d.CLASSIC_STORY_SEARCHES
           assert 'Alice\'s Adventures in Wonderland' in d.CLASSIC_STORY_SEARCHES
+          assert d.animation_relevance('Joy & Heron Animated CGI Spot', '')[0] is True
+          assert d.animation_relevance('Charge Blender Open Movie', '')[0] is True
+          assert d.animation_relevance('Prison restoration documentary', '')[0] is False
+          assert d.story_title_matches('Alice in Wonderland short animation', '', "Alice's Adventures in Wonderland") is False
+          assert d.story_title_matches("Alice's Adventures in Wonderland animated film", '', "Alice's Adventures in Wonderland") is True
+          # Open Library fallback records remain explicitly un-cleared for copyright.
+          original_get_json = d.get_json
+          d.get_json = lambda url, params=None, timeout=(8, 18): {
+              'docs': [{'key': '/works/OL1W', 'title': 'Test Fairy Tale', 'author_name': ['A. Author'],
+                        'first_publish_year': 1900, 'subject': ['Fairy tales'], 'edition_count': 3}]
+          }
+          fallback = d.discover_openlibrary_story_sources(5, searches=['fairy tales'])
+          d.get_json = original_get_json
+          assert len(fallback) == 1
+          assert fallback[0]['rights_status'] == 'unknown_manual_copyright_review_required'
           try:
               d.build_report(1, franchise='not-a-real-franchise')
           except ValueError:
