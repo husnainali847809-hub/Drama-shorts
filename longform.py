@@ -302,18 +302,18 @@ def run():
         log.info("Already queued one long-form cartoon for %s; skipping duplicate.", today)
         return
     core.verify_channel()
-    source_mode = os.getenv("CARTOON_SOURCE_MODE", "original").strip().lower()
+    source_mode = os.getenv("CARTOON_SOURCE_MODE", "licensed").strip().lower()
     if source_mode == "licensed":
         from licensed_source import build_licensed_video
         video, title, caption = build_licensed_video(minutes)
         log.info("Using manually rights-reviewed licensed source: %s", title)
     elif source_mode == "original":
-        story = generate_story(genre, minutes)
-        title, caption = story["title"], story["caption"]
-        log.info("Producing %s-minute original %s cartoon: %s", minutes, genre, title)
-        video = render_long_video(story, genre, minutes)
+        raise RuntimeError(
+            "AI-generated cartoon publishing is disabled. Use the licensed internet-source mode "
+            "after adding a rights-reviewed entry to licensed_assets.json."
+        )
     else:
-        raise RuntimeError("CARTOON_SOURCE_MODE must be 'original' or 'licensed'.")
+        raise RuntimeError("CARTOON_SOURCE_MODE must be 'licensed'.")
     public_url = core.upload_video(video)
     post = core.queue_reel(public_url, caption, post_type="post")
     core.write_state(today, sha)
