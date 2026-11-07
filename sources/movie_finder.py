@@ -3,7 +3,7 @@ import html
 import unicodedata
 import logging
 import requests
-from config import COMMONS_SEARCH_LIMIT
+from config import COMMONS_SEARCH_LIMIT, MIN_RELEASE_YEAR
 from sources.license_checker import license_is_allowed
 
 log = logging.getLogger("movie-reels-publisher")
@@ -61,9 +61,6 @@ FILM_GENRES = (
     "horror", "mystery", "romance", "science fiction", "sci-fi",
     "thriller", "war film", "western", "musical", "biographical film"
 )
-MIN_RELEASE_YEAR = 2008
-
-
 def _text(value):
     if isinstance(value, (list, tuple)):
         return " ".join(str(part) for part in value)
@@ -136,6 +133,11 @@ def has_film_metadata(metadata, fallback_title=""):
         return True
     # A long description alone is not proof that a record is a feature film.
     return False
+
+
+def release_year_is_allowed(year):
+    """Require a known year, but do not exclude older films by default."""
+    return year is not None and year >= MIN_RELEASE_YEAR
 
 
 def _release_year(metadata, fallback_date=""):
@@ -311,7 +313,7 @@ def _search_commons_movies(limit=100):
                 continue
 
             release_year = _release_year(metadata, date_value)
-            if release_year is None or release_year < MIN_RELEASE_YEAR:
+            if not release_year_is_allowed(release_year):
                 rejected["year_missing_or_old"] += 1
                 continue
             if not has_film_metadata(metadata, searchable_title):
