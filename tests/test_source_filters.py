@@ -8,6 +8,7 @@ from sources.movie_finder import (
     looks_animated,
     looks_like_non_film_asset,
     looks_like_non_movie,
+    looks_like_commons_promo,
 )
 
 
@@ -26,6 +27,11 @@ class MovieSourceFilterTests(unittest.TestCase):
 
     def test_tv_episode_is_rejected(self):
         self.assertTrue(looks_like_non_movie({"title": "Example Show S02E03"}))
+
+    def test_commons_institutional_promo_is_rejected(self):
+        self.assertTrue(looks_like_commons_promo({
+            "title": "A short film about 20 years of work and existence of Wikimedia Serbia"
+        }))
 
     def test_short_film_category_counts_as_film_metadata(self):
         self.assertTrue(has_film_metadata({"genre": "Short films"}))
