@@ -33,7 +33,10 @@ NON_MOVIE_TERMS = (
     "webcast", "recorded session", "public access", "vlog",
     "behind the scenes", "interview", "audition", "rap battle",
     "team mission", "full version", "official trailer", "teaser",
-    "preview", "performance", "풀버전", "무삭제", "브이로그", "예고편"
+    "preview", "performance", "풀버전", "무삭제", "브이로그", "예고편",
+    "dvdrip", "dvd rip", "brrip", "bdrip", "bluray rip", "blu-ray rip",
+    "webrip", "web rip", "camrip", "cam rip", "hdcam", "pre dvdrip",
+    "pre-dvdrip", "telesync", "telecine", "480p", "360p"
 )
 STRONG_FILM_SIGNALS = (
     "feature film", "feature-length film", "feature length film",
