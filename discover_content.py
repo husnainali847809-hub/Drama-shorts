@@ -115,6 +115,7 @@ def discover_cartoon_videos(limit=15, queries=None):
                 "rights_status": "candidate_only_human_review_required",
                 "commercial_use_and_modifications": "generally permitted by this license; verify exact work and embedded elements",
                 "worldwide_rights_confirmed": False,
+                "share_alike_obligation": normalized == "CC-BY-SA-4.0",
                 "duration_check_required": True,
             }
             if len(found) >= limit:
