@@ -68,6 +68,7 @@ jobs:
           CLIP_MAX_SECONDS: "89"
           MAX_SOURCE_MB: "800"
           IA_SEARCH_ROWS: "500"
+          IA_SEARCH_PAGES: "2"
         run: python main.py
       - name: Save generated video for review
         if: always()
