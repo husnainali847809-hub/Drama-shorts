@@ -103,6 +103,7 @@ def discover_cartoon_videos(limit=15, queries=None):
             page_url = f"https://commons.wikimedia.org/wiki/{quote(str(page.get('title', '')).replace(' ', '_'))}"
             found[str(page_id or title)] = {
                 "title": title,
+                "search_term": term,
                 "creator": meta("Artist") or meta("Credit") or "Creator not clearly listed",
                 "source_page_url": page_url,
                 "video_url": info.get("url", ""),
@@ -164,6 +165,7 @@ def build_report(limit=15):
             "added to the approved manifest, or published automatically."
         ),
         "cartoon_video_candidates": [],
+        "story_based_cartoon_video_candidates": [],
         "popular_story_source_candidates": [],
         "reference_only_copyrighted_franchises": [
             {
@@ -175,20 +177,36 @@ def build_report(limit=15):
         ],
         "source_errors": [],
     }
-    for label, fn in (
-        ("Wikimedia Commons cartoon videos", lambda: discover_cartoon_videos(limit)),
-        ("Project Gutenberg story sources", lambda: discover_story_sources(limit)),
-    ):
-        try:
-            results = fn()
-            key = "cartoon_video_candidates" if "Commons" in label else "popular_story_source_candidates"
-            report[key] = results
-            logging.info("%s: %s candidate(s)", label, len(results))
-        except Exception as exc:
-            logging.exception("Discovery source failed: %s", label)
-            report["source_errors"].append({"source": label, "error": str(exc)[:500]})
-    return report
+    stories = []
+    try:
+        stories = discover_story_sources(limit)
+        report["popular_story_source_candidates"] = stories
+        logging.info("Project Gutenberg story sources: %s candidate(s)", len(stories))
+    except Exception as exc:
+        logging.exception("Project Gutenberg story discovery failed")
+        report["source_errors"].append({"source": "Project Gutenberg story sources", "error": str(exc)[:500]})
 
+    try:
+        report["cartoon_video_candidates"] = discover_cartoon_videos(limit)
+        logging.info("Wikimedia Commons cartoon videos: %s candidate(s)", len(report["cartoon_video_candidates"]))
+    except Exception as exc:
+        logging.exception("Wikimedia Commons cartoon discovery failed")
+        report["source_errors"].append({"source": "Wikimedia Commons cartoon videos", "error": str(exc)[:500]})
+
+    story_titles = [item["title"] for item in stories[:5] if item.get("title")]
+    if story_titles:
+        try:
+            report["story_based_cartoon_video_candidates"] = discover_cartoon_videos(
+                limit, queries=story_titles
+            )
+            logging.info(
+                "Story-title-matched cartoon videos: %s candidate(s)",
+                len(report["story_based_cartoon_video_candidates"]),
+            )
+        except Exception as exc:
+            logging.exception("Story-title cartoon search failed")
+            report["source_errors"].append({"source": "Story-title cartoon videos", "error": str(exc)[:500]})
+    return report
 
 def write_report(report):
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -220,6 +238,21 @@ def write_report(report):
     if not report["cartoon_video_candidates"]:
         lines.append("No matching video candidates with recognized license metadata were returned.")
         lines.append("")
+    lines.extend(["## Videos matching popular story titles", ""])
+    for item in report["story_based_cartoon_video_candidates"]:
+        lines.extend([
+            f"### {item['title']}",
+            f"- Matched story search: {item.get('search_term', 'classic story')}",
+            f"- Creator: {item['creator']}",
+            f"- License: {item['license_label_from_source']} ({item['license']})",
+            f"- Source: {item['source_page_url']}",
+            f"- Direct video: {item['video_url']}",
+            "- Status: candidate only; verify every embedded right and global reuse terms.",
+            "",
+        ])
+    if not report["story_based_cartoon_video_candidates"]:
+        lines.append("No matching story-title videos with recognized license metadata were returned.")
+        lines.append("")
     lines.extend(["## Popular classic-story sources (Project Gutenberg)", ""])
     for item in report["popular_story_source_candidates"]:
         authors = ", ".join(item["authors"]) or "Author not listed"
@@ -233,11 +266,7 @@ def write_report(report):
         ])
     if not report["popular_story_source_candidates"]:
         lines.append("No story records were returned.")
-        lines.append("")
-    lines.extend(["## Copyrighted franchise references", ""])
-    for item in report["reference_only_copyrighted_franchises"]:
-        lines.append(f"- **{item['name']}** — {item['status']}.")
-    lines.extend(["", "## Source errors", ""])
+        lines.append("")    lines.extend(["", "## Source errors", ""])
     if report["source_errors"]:
         for error in report["source_errors"]:
             lines.append(f"- {error['source']}: {error['error']}")
