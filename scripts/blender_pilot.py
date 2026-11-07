@@ -65,9 +65,8 @@ def animate(obj,seconds,idx):
     obj.keyframe_insert(data_path="location",frame=seconds*24)
     obj.rotation_euler[2]=.07 if idx in (1,3) else -.04
     obj.keyframe_insert(data_path="rotation_euler",frame=seconds*24)
-    if obj.animation_data and obj.animation_data.action:
-        for curve in obj.animation_data.action.fcurves:
-            for key in curve.keyframe_points: key.interpolation="SINE"
+    # Blender 5.x changed the Action F-Curve API. Keep Blender's default
+    # smooth Bezier interpolation instead of accessing the removed action.fcurves.
 
 def build(idx,seconds,out):
     bpy.ops.object.select_all(action="SELECT"); bpy.ops.object.delete(use_global=False)
