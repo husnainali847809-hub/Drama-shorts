@@ -33,3 +33,9 @@ Use **Actions → Internet Cartoon & Story Discovery → Run workflow**. The job
 After review, add a candidate to licensed_assets.json using the format in LICENSED_VIDEO_SOURCING.md. Set the rights flags to true only after a human has verified the exact work, the source, commercial use, modifications, worldwide rights and all embedded elements.
 
 The publisher is now licensed-only. It fails safely if the approved manifest is empty or incomplete. No AI-generated cartoon mode is available to the publishing workflow.
+
+## Additional full-length cartoon sources
+
+The discovery job also searches the Internet Archive animation-and-cartoons collection for full-length video files, records source-page and direct-file links, and captures the declared license metadata where available. It separately supports the official YouTube Data API Creative Commons filter when the repository secret YOUTUBE_API_KEY is configured. Add that key under Settings -> Secrets and variables -> Actions -> New repository secret. The YouTube integration only records video links and license labels; it does not download YouTube files or bypass YouTube's permitted reuse/remix features.
+
+Internet Archive metadata and YouTube Creative Commons labels are discovery leads, not legal clearance. Review the exact work, creator, commercial rights, modifications, music, voices, characters and worldwide rights before adding anything to licensed_assets.json. The publisher remains restricted to the manually reviewed manifest and normal Facebook video posts, not Shorts/Reels.
