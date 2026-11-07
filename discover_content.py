@@ -140,6 +140,14 @@ def discover_cartoon_videos(limit=15, queries=None):
                 value = metadata.get(key, {})
                 return clean(value.get("value") if isinstance(value, dict) else value, 800)
 
+            description = meta("ImageDescription")
+            # Commons search can return loosely related pages. For famous-franchise
+            # searches, require the exact franchise name in the file title or description.
+            if term in REFERENCE_ONLY_FRANCHISES:
+                searchable_text = f"{title} {description}".casefold()
+                if term.casefold() not in searchable_text:
+                    continue
+
             short_license = meta("LicenseShortName")
             normalized = normalize_video_license(short_license)
             if not normalized:
@@ -156,7 +164,7 @@ def discover_cartoon_videos(limit=15, queries=None):
                 "license": normalized,
                 "license_label_from_source": short_license,
                 "license_url": meta("LicenseUrl"),
-                "description": meta("ImageDescription"),
+                "description": description,
                 "rights_status": "candidate_only_human_review_required",
                 "commercial_use_and_modifications": "generally permitted by this license; verify exact work and embedded elements",
                 "worldwide_rights_confirmed": False,
