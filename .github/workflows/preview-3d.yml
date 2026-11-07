@@ -13,7 +13,7 @@ concurrency:
 jobs:
   render-preview:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - name: Checkout this repository only
         uses: actions/checkout@v4
