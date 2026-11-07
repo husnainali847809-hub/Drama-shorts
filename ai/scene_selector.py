@@ -29,9 +29,9 @@ def _make_detection_proxy(video_path, proxy_path):
 
 
 def find_candidate_scenes(video_path, min_seconds=90, max_seconds=180):
-    """Choose a 90–180 second window using a low-resolution scene proxy."""
-    if min_seconds < 90 or max_seconds > 180 or min_seconds > max_seconds:
-        raise ValueError("Movie clip length must be between 90 and 180 seconds.")
+    """Choose a Facebook-safe 85–89 second window using a low-resolution scene proxy."""
+    if min_seconds < 60 or max_seconds > 90 or min_seconds > max_seconds:
+        raise ValueError("Facebook Reel clip length must be between 60 and 90 seconds.")
 
     video_path = Path(video_path)
     total = _probe_duration(video_path)
@@ -55,7 +55,7 @@ def find_candidate_scenes(video_path, min_seconds=90, max_seconds=180):
         if 0 <= value <= total - min_seconds:
             starts.add(value)
 
-    target = 135.0
+    target = min(87.0, float(max_seconds))
     durations = sorted({float(min_seconds), float(max_seconds), target})
     candidates = []
     for start in starts:
