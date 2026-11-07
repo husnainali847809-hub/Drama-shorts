@@ -36,7 +36,7 @@ Each manifest entry must include:
 - Attribution wording.
 - Human-reviewed true declarations for rights, commercial use, modifications and worldwide rights.
 
-Supported license declarations are CC0-1.0, CC-BY-4.0, CC-BY-SA-4.0 and PDM-1.0. These declarations are a workflow gate, not an automated legal opinion. Do not mark a work approved unless the exact video and every embedded element have been checked.
+Supported license declarations are CC0-1.0, CC-BY-4.0, CC-BY-SA-4.0 and PDM-1.0. These declarations are a workflow gate, not an automated legal opinion. Do not mark a work approved unless the exact video and every embedded element have been checked. CC-BY-SA-4.0 additionally requires a `share_alike_compliance_confirmed=true` declaration after confirming the posted adaptation is offered under the same license.
 
 See [docs/CONTENT_DISCOVERY.md](docs/CONTENT_DISCOVERY.md) and [docs/LICENSED_VIDEO_SOURCING.md](docs/LICENSED_VIDEO_SOURCING.md).
 
