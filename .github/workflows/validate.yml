@@ -33,6 +33,6 @@ jobs:
         run: |
           python - <<'PY'
           from sources.movie_finder import _search_commons_movies
-          items = _search_commons_movies(limit=20)
+          items = _search_commons_movies(limit=100)
           print("Commons eligible candidates:", len(items))
           PY
