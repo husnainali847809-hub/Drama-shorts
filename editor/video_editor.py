@@ -21,7 +21,7 @@ def _has_audio(source: Path) -> bool:
 
 def make_vertical_clip(source: Path, start: float, duration: float, output: Path, fighting_scene=False):
     if not CLIP_MIN_SECONDS <= float(duration) <= CLIP_MAX_SECONDS:
-        raise ValueError("Reel duration must be between 120 and 180 seconds.")
+        raise ValueError("Facebook Reel duration must be between 60 and 90 seconds.")
     if not _has_audio(source):
         raise RuntimeError(
             "Source video has no original audio/dialogue track; skipped to protect the requested format."
