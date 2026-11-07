@@ -10,20 +10,6 @@ on:
         required: true
         type: boolean
         default: false
-      genre:
-        description: 'Original cartoon story genre'
-        required: true
-        type: choice
-        options:
-          - variety
-          - comedy
-          - kids-adventure
-          - moral-story
-          - fantasy
-          - mystery
-          - horror
-          - adventure
-        default: variety
       source_mode:
         description: 'Use a manually reviewed, commercially reusable internet cartoon video'
         required: true
@@ -75,7 +61,6 @@ jobs:
           pip install -r requirements.txt
       - name: Prepare licensed internet cartoon, upload, and queue Facebook video
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_CHANNEL_ID: ${{ vars.BUFFER_CHANNEL_ID }}
           BUFFER_EXPECTED_CHANNEL_NAME: ${{ vars.BUFFER_EXPECTED_CHANNEL_NAME }}
@@ -84,7 +69,6 @@ jobs:
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: funny-animals-comedy
           CARTOON_SOURCE_MODE: ${{ inputs.source_mode || 'licensed' }}
-          CARTOON_GENRE: ${{ inputs.genre || 'variety' }}
           CARTOON_DURATION_MINUTES: ${{ inputs.duration || '7' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
