@@ -109,12 +109,21 @@ def build(idx,seconds,out):
     s.render.engine="BLENDER_EEVEE_NEXT" if bpy.app.version >= (4,2,0) else "BLENDER_EEVEE"
     s.render.resolution_x=720; s.render.resolution_y=1280; s.render.resolution_percentage=100
     s.render.fps=24; s.frame_start=1; s.frame_end=seconds*24
-    s.render.image_settings.file_format="FFMPEG"
-    s.render.ffmpeg.format="MPEG4"; s.render.ffmpeg.codec="H264"
-    s.render.ffmpeg.constant_rate_factor="MEDIUM"
-    s.render.filepath=str(Path(out).resolve())
+    # Render numbered PNG frames. Encoding is handled by system FFmpeg in
+    # pipeline.py, avoiding Blender-build-specific FFmpeg output problems.
+    frames_dir=Path(out).resolve().parent/(Path(out).stem+"_frames")
+    frames_dir.mkdir(parents=True,exist_ok=True)
+    s.render.image_settings.file_format="PNG"
+    s.render.image_settings.color_mode="RGB"
+    s.render.image_settings.compression=15
+    s.render.filepath=str(frames_dir/"frame_")
     s.world.color=(.035,.09,.045); s.view_settings.view_transform="Standard"
+    print(f"Rendering scene {idx} to PNG sequence: {s.render.filepath}",flush=True)
     bpy.ops.render.render(animation=True)
+    rendered=list(frames_dir.glob("*.png"))
+    print(f"Scene {idx} rendered {len(rendered)} PNG frames in {frames_dir}",flush=True)
+    if len(rendered) < seconds*24:
+        raise RuntimeError(f"Expected {seconds*24} frames, found {len(rendered)}")
 
 if __name__=="__main__":
     a=cli(); build(a.scene_index,a.seconds,a.output)
