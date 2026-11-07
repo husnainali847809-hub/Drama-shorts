@@ -36,6 +36,8 @@ jobs:
           pip install -r requirements.txt
       - name: Compile Python modules
         run: python -m py_compile main.py longform.py licensed_source.py discover_content.py
+      - name: Test discovery text and license normalization
+        run: python -c "import discover_content as d; assert d.clean('  two   words ') == 'two words'; assert d.normalize_video_license('CC BY-SA 4.0') == 'CC-BY-SA-4.0'; assert d.normalize_video_license('All rights reserved') is None; print('Discovery normalization checks OK.')"
       - name: Validate licensed asset manifest JSON
         run: python -c "import json; json.load(open('licensed_assets.json', encoding='utf-8')); print('Licensed asset manifest JSON OK.')"
       - name: Import long-form generator without credentials
