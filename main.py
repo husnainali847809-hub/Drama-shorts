@@ -112,7 +112,7 @@ def main():
             log.info("Verified source quality: %sx%s, bitrate=%s bps", width, height, bitrate)
             scenes = find_candidate_scenes(source, CLIP_MIN_SECONDS, CLIP_MAX_SECONDS)
             if not scenes:
-                log.warning("No usable 60-90 second scene window; skipped.")
+                log.warning("No usable 90-180 second scene window; skipped.")
                 continue
             chosen = scenes[0]
             duration = float(chosen["duration"])
