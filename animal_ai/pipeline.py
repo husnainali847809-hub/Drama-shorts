@@ -130,7 +130,7 @@ def assemble(clips, voice_path):
     final = OUT / "PILOT_Timo_and_Bunny_REVIEW_ONLY.mp4"
     run(["ffmpeg", "-y", "-i", str(silent), "-i", str(voice_path),
          "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
-         "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(final)])
+         "-b:a", "192k", "-af", "apad", "-shortest", "-movflags", "+faststart", str(final)])
     return final
 
 
