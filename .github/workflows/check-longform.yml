@@ -22,6 +22,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Compile Python modules
-        run: python -m py_compile main.py longform.py
+        run: python -m py_compile main.py longform.py licensed_source.py
       - name: Import long-form generator without credentials
-        run: python -c "import longform; print('Long-form module import OK; no upload or publishing performed.')"
+        run: python -c "import longform, licensed_source; print('Long-form and licensed-source modules import OK; no upload or publishing performed.')"
