@@ -13,7 +13,7 @@ from sources.movie_finder import search_movies
 from sources.license_checker import attribution_required, license_label
 from ai.scene_selector import find_candidate_scenes
 from editor.video_editor import make_vertical_clip
-from publisher.buffer import verify_channel, queue_facebook_reel
+from publisher.buffer import verify_channel, queue_facebook_video
 from database.history import was_used, mark_used
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
