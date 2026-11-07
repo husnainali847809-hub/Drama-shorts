@@ -20,12 +20,12 @@ The existing GitHub Actions secrets and variables are preserved:
 - Variables: `BUFFER_CHANNEL_ID`, optional `BUFFER_EXPECTED_CHANNEL_NAME`
 - Set repository variable `ENABLE_AUTO_PUBLISH=true` to enable the five scheduled attempts.
 
-The publisher does not change the configured Buffer channel ID: it verifies and queues to that same connected Facebook destination. Each output uploads to Cloudinary and is added to that channel's Buffer queue. Queue acceptance is not proof that Facebook later published it.
+The publisher searches Internet Archive and Wikimedia Commons; it does not assume that a file is reusable merely because it is hosted on Commons. Its explicit machine-readable license URL must pass the configured commercial-reuse allowlist. The publisher does not change the configured Buffer channel ID: it verifies and queues to that same connected Facebook destination. Each output uploads to Cloudinary and is added to that channel's Buffer queue. Queue acceptance is not proof that Facebook later published it.
 
 ## Source rights and availability
-The finder searches Internet Archive records declaring Public Domain Mark 1.0, CC0 1.0 or CC BY 4.0. The stricter metadata filter may return fewer candidates, and metadata alone cannot prove that every video, soundtrack, performer and commercial-use right is cleared. Confirm rights before public posting. Do not use unofficial commercial movie or TV-drama copies without permission. Short duration, edits, credits or music overlays do not make copyrighted footage free to reuse.
+The finder searches Internet Archive records and Wikimedia Commons video files. It accepts only machine-readable Public Domain Mark 1.0, CC0 1.0 or CC BY 4.0 declarations, and Commons candidates must be live-action film-like video files with a recorded year and native Full HD dimensions. The stricter metadata filter may return fewer candidates, and metadata alone cannot prove that every video, soundtrack, performer and commercial-use right is cleared. Confirm rights before public posting. Do not use unofficial commercial movie or TV-drama copies without permission. Short duration, edits, credits or music overlays do not make copyrighted footage free to reuse.
 
-The openly licensed Archive catalogue is not a dependable source of current blockbuster films or Pakistani television dramas. Some runs may find no eligible source and queue nothing; the system skips unsuitable material rather than selecting cartoons, gameplay or event recordings to fill the schedule.
+Wikimedia Commons is primarily a free-media repository, not a dependable catalogue of complete feature films. The openly licensed Archive catalogue is not a dependable source of current blockbuster films or Pakistani television dramas. Some runs may find no eligible source and queue nothing; the system skips unsuitable material rather than selecting cartoons, gameplay or event recordings to fill the schedule.
 
 ## Run
 Python 3.11+, FFmpeg and FFprobe. Install dependencies with `pip install -r requirements.txt`. In Actions, run **Movie Reels - Facebook Buffer Publisher** with `publish=true` for a one-time manual attempt.
