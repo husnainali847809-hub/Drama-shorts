@@ -178,13 +178,13 @@ def build_scene(output_path):
     # Blender 5.x exposes EEVEE under this engine identifier.
     scene.render.engine = "BLENDER_EEVEE"
     if hasattr(scene, "eevee"):
-        scene.eevee.taa_render_samples = 32
-    scene.render.resolution_x = 540
-    scene.render.resolution_y = 960
+        scene.eevee.taa_render_samples = 8
+    scene.render.resolution_x = 360
+    scene.render.resolution_y = 640
     scene.render.resolution_percentage = 100
-    scene.render.fps = 24
+    scene.render.fps = 12
     scene.frame_start = 1
-    scene.frame_end = 120
+    scene.frame_end = 60
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
     scene.view_settings.view_transform = "Standard"
@@ -215,7 +215,7 @@ def build_scene(output_path):
 
     pattern = str((ROOT / "output" / "frames" / "frame_").resolve()) + "%04d.png"
     command = [
-        "ffmpeg", "-y", "-framerate", "24", "-start_number", "1",
+        "ffmpeg", "-y", "-framerate", "12", "-start_number", "1",
         "-i", pattern, "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", "-crf", "20", str(output_path.resolve())
     ]
