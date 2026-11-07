@@ -84,7 +84,7 @@ def looks_like_non_movie(metadata, fallback_title=""):
 
 
 def has_film_metadata(metadata, fallback_title=""):
-    fields = ("genre", "subject", "collection", "type", "description")
+    fields = ("genre", "subject", "collection", "type", "description", "director", "cast", "runtime", "imdb", "imdb_id", "mediatype")
     classified = _normalize(" ".join(_text(metadata.get(key, "")) for key in fields))
     if any(term in classified for term in STRONG_FILM_SIGNALS):
         return True
@@ -97,7 +97,7 @@ def _release_year(metadata, fallback_date=""):
     # endpoint omits it. Check both rather than rejecting valid records.
     for value in (
         metadata.get("release_year"), metadata.get("year"), metadata.get("date"),
-        metadata.get("issued"), metadata.get("year_published"), fallback_date
+        metadata.get("issued"), metadata.get("year_published"), metadata.get("originalyear"), metadata.get("year"), fallback_date
     ):
         if isinstance(value, (list, tuple)):
             value = " ".join(str(part) for part in value)
@@ -110,9 +110,10 @@ def _release_year(metadata, fallback_date=""):
 def _search_docs(query, rows):
     params = {
         "q": query,
-        "fl[]": ["identifier", "title", "licenseurl", "creator", "date"],
+        "fl[]": ["identifier", "title", "licenseurl", "creator", "date", "year", "downloads"],
         "rows": max(1, min(int(rows), 500)),
         "page": 1,
+        "sort[]": "downloads desc",
         "output": "json",
     }
     response = requests.get(IA_SEARCH, params=params, headers=HEADERS, timeout=40)
@@ -170,7 +171,7 @@ def search_movies(rows=100):
             rejected["animation_or_non_movie"] += 1
             continue
 
-        release_year = _release_year(metadata, doc.get("date", ""))
+        release_year = _release_year(metadata, doc.get("year") or doc.get("date", ""))
         if release_year is None or release_year < MIN_RELEASE_YEAR:
             rejected["year_missing_or_old"] += 1
             continue
