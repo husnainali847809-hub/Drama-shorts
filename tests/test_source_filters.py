@@ -9,6 +9,7 @@ from sources.movie_finder import (
     looks_like_non_film_asset,
     looks_like_non_movie,
     looks_like_commons_promo,
+    release_year_is_allowed,
 )
 
 
@@ -35,6 +36,12 @@ class MovieSourceFilterTests(unittest.TestCase):
 
     def test_short_film_category_counts_as_film_metadata(self):
         self.assertTrue(has_film_metadata({"genre": "Short films"}))
+
+    def test_old_film_year_is_allowed_but_unknown_year_is_not(self):
+        self.assertTrue(release_year_is_allowed(1925))
+        self.assertTrue(release_year_is_allowed(1890))
+        self.assertFalse(release_year_is_allowed(1889))
+        self.assertFalse(release_year_is_allowed(None))
 
     def test_release_year_can_be_read_from_title(self):
         self.assertEqual(_release_year({"title": "An Example Short Film (2015)"}), 2015)
