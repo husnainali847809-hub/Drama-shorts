@@ -49,7 +49,7 @@ def verify_channel():
     return channel
 
 
-def queue_facebook_reel(video_url, caption):
+def queue_facebook_video(video_url, caption):
     verify_channel()
     channel_id = _need("BUFFER_CHANNEL_ID")
     if not video_url.startswith("https://res.cloudinary.com/"):
@@ -61,7 +61,7 @@ def queue_facebook_reel(video_url, caption):
         schedulingType: automatic
         mode: addToQueue
         assets: [{{ video: {{ url: {json.dumps(video_url)} }} }}]
-        metadata: {{ facebook: {{ type: "reel" }} }}
+        metadata: {{ facebook: {{ type: "post" }} }}
         aiAssisted: false
       }}) {{
         ... on PostActionSuccess {{ post {{ id status dueAt channelId }} }}
