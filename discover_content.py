@@ -485,6 +485,33 @@ def write_report(report):
     if not report["cartoon_video_candidates"]:
         lines.append("No likely-animation video candidates with recognized license metadata were returned.")
         lines.append("")
+    lines.extend(["## Internet Archive full-length animation candidates", ""])
+    for item in report.get("internet_archive_video_candidates", []):
+        lines.extend([
+            "### " + item["title"],
+            "- Creator: " + item["creator"],
+            "- Declared license: " + str(item.get("license") or "Not recognized; manual review required"),
+            "- Duration seconds: " + str(item.get("duration_seconds") or "Not supplied"),
+            "- Source page: " + item["source_page_url"],
+            "- Video file: " + str(item.get("download_url") or "No direct video file identified"),
+            "- Status: candidate only; inspect exact video and rights before use.",
+            "",
+        ])
+    if not report.get("internet_archive_video_candidates"):
+        lines.extend(["No matching Internet Archive video files were found.", ""])
+    yt = report.get("youtube_discovery", {})
+    lines.extend(["## YouTube Creative Commons discovery", "",
+                  "- Status: " + str(yt.get("status", "not run")),
+                  "- Note: " + str(yt.get("notice", "")), ""])
+    for item in yt.get("candidates", []):
+        lines.extend([
+            "### " + item["title"],
+            "- Creator/channel: " + item["creator"],
+            "- Source: " + item["source_page_url"],
+            "- License: " + str(item.get("license_label_from_source", item.get("license", "Not supplied"))),
+            "- Note: " + str(item.get("notice", "Candidate only; verify all rights.")),
+            "",
+        ])
     lines.extend(["## Videos matching popular story titles", ""])
     for item in report["story_based_cartoon_video_candidates"]:
         lines.extend([
