@@ -198,6 +198,7 @@ def build_report(limit=15, franchise="all", story="all"):
         "cartoon_video_candidates": [],
         "story_based_cartoon_video_candidates": [],
         "popular_story_source_candidates": [],
+        "franchise_searches": [],
         "reference_only_copyrighted_franchises": [
             {
                 "name": name,
@@ -219,7 +220,7 @@ def build_report(limit=15, franchise="all", story="all"):
 
     try:
         report["cartoon_video_candidates"] = discover_cartoon_videos(
-            limit, queries=list(CARTOON_SEARCHES) + franchise_queries
+            limit, queries=franchise_queries + list(CARTOON_SEARCHES)
         )
         logging.info("Wikimedia Commons cartoon videos: %s candidate(s)", len(report["cartoon_video_candidates"]))
         report["franchise_searches"] = [
@@ -298,6 +299,14 @@ def write_report(report):
     if not report["story_based_cartoon_video_candidates"]:
         lines.append("No matching story-title videos with recognized license metadata were returned.")
         lines.append("")
+    lines.extend(["## Famous cartoon franchise searches (reference only)", ""])
+    for item in report.get("franchise_searches", []):
+        lines.extend([
+            f"### {item['name']}",
+            f"- Reuse-friendly Commons candidates matching this name: {item['candidate_count']}",
+            f"- Notice: {item['notice']}",
+            "",
+        ])
     lines.extend(["## Popular classic-story sources (Project Gutenberg)", ""])
     for item in report["popular_story_source_candidates"]:
         authors = ", ".join(item["authors"]) or "Author not listed"
