@@ -10,6 +10,39 @@ on:
         required: true
         type: number
         default: 15
+      franchise:
+        description: 'Famous cartoon name to search for openly licensed candidates (not official episodes)'
+        required: true
+        type: choice
+        options:
+          - all
+          - Motu Patlu
+          - Chhota Bheem
+          - Tom and Jerry
+          - Doraemon
+          - Shinchan
+          - Oggy and the Cockroaches
+          - The Jungle Book (cartoon adaptations)
+        default: all
+      story:
+        description: 'Famous classic story title to prioritize'
+        required: true
+        type: choice
+        options:
+          - all
+          - Cinderella
+          - Alice's Adventures in Wonderland
+          - The Adventures of Pinocchio
+          - The Wonderful Wizard of Oz
+          - Peter Pan
+          - The Jungle Book
+          - Snow White
+          - Hansel and Gretel
+          - The Three Little Pigs
+          - Robin Hood
+          - The Little Mermaid
+          - Arabian Nights
+        default: all
 
 permissions:
   contents: read
@@ -30,7 +63,11 @@ jobs:
       - name: Search licensed cartoon videos and popular story sources
         env:
           DISCOVERY_LIMIT: ${{ inputs.limit || 15 }}
-        run: python discover_content.py --limit "$DISCOVERY_LIMIT"
+          DISCOVERY_FRANCHISE: ${{ inputs.franchise || 'all' }}
+          DISCOVERY_STORY: ${{ inputs.story || 'all' }}
+        run: |
+          python discover_content.py --limit "$DISCOVERY_LIMIT" \
+            --franchise "$DISCOVERY_FRANCHISE" --story "$DISCOVERY_STORY"
       - name: Upload discovery report
         uses: actions/upload-artifact@v4
         with:
