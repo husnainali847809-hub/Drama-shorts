@@ -27,7 +27,7 @@ The report contains:
 
 AI-generated cartoon publishing is disabled. The publisher defaults to `CARTOON_SOURCE_MODE=licensed` and only accepts the licensed source mode.
 
-The manual publisher supports 5, 7 or 10 minute videos. A selected source must match the duration range and pass the video validation checks. If `licensed_assets.json` is empty or a rights declaration is missing, publishing stops safely before upload.
+The publisher preserves and uploads the complete duration of each approved source video; it does not cut the source into short clips or enforce a 5/7/10-minute target. The video must pass format and full-duration validation. If `licensed_assets.json` is empty or a rights declaration is missing, publishing stops safely before upload.
 
 Each manifest entry must include:
 - Exact work title and creator/rightsholder.
