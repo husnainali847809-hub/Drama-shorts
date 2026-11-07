@@ -175,7 +175,8 @@ def build_scene(output_path):
     look_at(fill, (0, 0, 1.7))
 
     scene = bpy.context.scene
-    scene.render.engine = "BLENDER_EEVEE_NEXT" if bpy.app.version >= (4, 2, 0) else "BLENDER_EEVEE"
+    # Blender 5.x exposes EEVEE under this engine identifier.
+    scene.render.engine = "BLENDER_EEVEE"
     if hasattr(scene, "eevee"):
         scene.eevee.taa_render_samples = 32
     scene.render.resolution_x = 540
