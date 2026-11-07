@@ -74,7 +74,7 @@ Requirements:
 - Exactly 2 original animal characters; keep names and species identical in every scene.
 - Exactly {scene_count} scenes, in chronological order, with a beginning, rising conflict, climax, and satisfying ending.
 - Total narration should be approximately {target_words} words; do not shorten the story.
-- Each scene narration must contain 32-45 spoken words. Use natural dialogue and narration.
+- Each scene narration must contain 34-55 spoken words. Use natural dialogue and narration.
 - Each scene must advance the plot; avoid repeating the same event or padding.
 - Write for the selected genre. For horror, use atmosphere and suspense only, no gore or graphic violence.
 - No copyrighted characters, franchises, existing cartoon plots, brands, celebrities, or copied scripts.
