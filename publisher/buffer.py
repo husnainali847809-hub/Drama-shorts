@@ -49,19 +49,19 @@ def verify_channel():
     return channel
 
 
-def queue_facebook_video(video_url, caption):
+def queue_facebook_reel(video_url, caption):
     verify_channel()
     channel_id = _need("BUFFER_CHANNEL_ID")
     if not video_url.startswith("https://res.cloudinary.com/"):
         raise RuntimeError("Only a public Cloudinary HTTPS video URL may be queued.")
-    mutation = f'''mutation QueueMovieFacebookVideo {{
+    mutation = f'''mutation QueueMovieFacebookReel {{
       createPost(input: {{
         text: {json.dumps(caption, ensure_ascii=False)}
         channelId: {json.dumps(channel_id)}
         schedulingType: automatic
         mode: addToQueue
         assets: [{{ video: {{ url: {json.dumps(video_url)} }} }}]
-        metadata: {{ facebook: {{ type: "post" }} }}
+        metadata: {{ facebook: {{ type: reel }} }}
         aiAssisted: false
       }}) {{
         ... on PostActionSuccess {{ post {{ id status dueAt channelId }} }}
@@ -70,10 +70,10 @@ def queue_facebook_video(video_url, caption):
     }}'''
     result = buffer_api(mutation).get("createPost") or {}
     if result.get("message"):
-        raise RuntimeError("Buffer rejected Facebook video post: " + result["message"])
+        raise RuntimeError("Buffer rejected Facebook Reel: " + result["message"])
     post = result.get("post")
     if not post or not post.get("id"):
-        raise RuntimeError(f"Buffer did not confirm queue creation: {result}")
+        raise RuntimeError(f"Buffer did not confirm Reel queue creation: {result}")
     if post.get("channelId") and post["channelId"] != channel_id:
         raise RuntimeError("SAFETY STOP: Buffer returned an unexpected destination channel.")
     return post
