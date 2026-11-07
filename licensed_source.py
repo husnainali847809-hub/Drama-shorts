@@ -148,16 +148,16 @@ def build_licensed_video(minutes):
     share_alike = ""
     if asset["license"] == "CC-BY-SA-4.0":
         share_alike = (
-            "\\nAdaptation license: CC BY-SA 4.0 "
+            "\nAdaptation license: CC BY-SA 4.0 "
             "(the posted adaptation is offered under the same license)."
         )
     caption = (
-        f"{asset['title']}\\n\\n"
-        f"Original creator: {asset['creator']}\\n"
-        f"Source license: {asset['license']} — {asset['license_url']}\\n"
-        f"Source: {asset['source_page_url']}\\n"
+        f"{asset['title']}\n\n"
+        f"Original creator: {asset['creator']}\n"
+        f"Source license: {asset['license']} — {asset['license_url']}\n"
+        f"Source: {asset['source_page_url']}\n"
         f"Attribution: {attribution}"
-        f"{share_alike}\\n\\n"
+        f"{share_alike}\n\n"
         "#Cartoon #Animation #AnimatedStories"
     )
     log.info("Licensed source prepared: %s (%.1f minutes). Rights metadata was manually supplied; not independently certified by the software.",
