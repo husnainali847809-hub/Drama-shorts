@@ -210,6 +210,12 @@ def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story
                 description, re.IGNORECASE
             ))
             license_conflict = normalized == "CC-BY-4.0" and description_has_sharealike
+            permission_claim = "written copyright permission" in description.casefold()
+            review_flags = []
+            if license_conflict:
+                review_flags.append("Description mentions CC BY-SA 4.0 while Commons label says CC BY 4.0")
+            if permission_claim:
+                review_flags.append("Description mentions written copyright permission; verify the permission chain and scope")
             page_id = page.get("pageid")
             page_url = f"https://commons.wikimedia.org/wiki/{quote(str(page.get('title', '')).replace(' ', '_'))}"
             found[str(page_id or title)] = {
@@ -226,10 +232,8 @@ def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story
                 "animation_relevance": "likely_animation_based_on_metadata",
                 "animation_evidence": positive_hits,
                 "license_metadata_conflict": license_conflict,
-                "rights_review_flags": (
-                    ["Description mentions CC BY-SA 4.0 while Commons label says CC BY 4.0"]
-                    if license_conflict else []
-                ),
+                "permission_claim_in_description": permission_claim,
+                "rights_review_flags": review_flags,
                 "rights_status": "candidate_only_human_review_required",
                 "commercial_use_and_modifications": "generally permitted by this license; verify exact work and embedded elements",
                 "worldwide_rights_confirmed": False,
@@ -328,6 +332,7 @@ def build_report(limit=15, franchise="all", story="all"):
         "story_based_cartoon_video_candidates": [],
         "popular_story_source_candidates": [],
         "story_source_fallback_used": False,
+        "story_source_fallback_attempted": False,
         "filtered_out_video_results": [],
         "franchise_searches": [],
         "reference_only_copyrighted_franchises": [
@@ -349,7 +354,9 @@ def build_report(limit=15, franchise="all", story="all"):
     else:
         # Gutendex has been timing out; use a separate catalog as a discovery-only fallback.
         fallback_queries = (story_queries if story != "all" else []) + list(STORY_SEARCHES[:3])
+        report["story_source_fallback_attempted"] = True
         fallback = discover_openlibrary_story_sources(limit, searches=list(dict.fromkeys(fallback_queries)))
+        stories = fallback
         report["popular_story_source_candidates"] = fallback
         report["story_source_fallback_used"] = bool(fallback)
         logging.info("Open Library fallback story sources: %s candidate(s)", len(fallback))
