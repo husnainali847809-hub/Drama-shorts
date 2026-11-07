@@ -19,3 +19,5 @@ if CLIP_MIN_SECONDS < 60 or CLIP_MAX_SECONDS > 90 or CLIP_MIN_SECONDS > CLIP_MAX
     raise ValueError("Facebook Reel clip duration must be between 60 and 90 seconds.")
 for folder in (OUTPUT_DIR, DOWNLOAD_DIR, MUSIC_DIR):
     folder.mkdir(parents=True, exist_ok=True)
+
+COMMONS_SEARCH_LIMIT = max(20, min(int(os.getenv("COMMONS_SEARCH_LIMIT", "100")), 150))
