@@ -39,7 +39,7 @@ def generate_pilot():
     clips=[]
     for i,s in enumerate(SCENES,1):
         clip=OUT/f"scene_{i:02d}.mp4"
-        run([blender,"-b","--python",SCRIPT,"--","--scene-index",i,"--seconds",s["seconds"],"--output",clip])
+        run([blender,"-b","--threads",os.getenv("BLENDER_THREADS","2"),"--python",SCRIPT,"--","--scene-index",i,"--seconds",s["seconds"],"--output",clip])
         if not clip.is_file() or clip.stat().st_size<10000: raise RuntimeError(f"Blender did not create scene {i}.")
         clips.append(clip)
     listing=OUT/"video_concat.txt"
