@@ -8,7 +8,7 @@ import cloudinary
 import cloudinary.uploader
 import requests
 
-from config import DOWNLOAD_DIR, OUTPUT_DIR, MAX_SOURCE_MB, IA_SEARCH_ROWS, CLIP_MIN_SECONDS, CLIP_MAX_SECONDS, MUSIC_DIR, CLOUDINARY_FOLDER
+from config import DOWNLOAD_DIR, OUTPUT_DIR, MAX_SOURCE_MB, IA_SEARCH_ROWS, IA_SEARCH_PAGES, CLIP_MIN_SECONDS, CLIP_MAX_SECONDS, MUSIC_DIR, CLOUDINARY_FOLDER
 from sources.movie_finder import search_movies
 from sources.license_checker import attribution_required, license_label
 from ai.scene_selector import find_candidate_scenes
@@ -96,7 +96,7 @@ def main():
     channel = verify_channel()
     log.info("Facebook destination verified through Buffer: %s",
              channel.get("displayName") or channel.get("name"))
-    candidates = search_movies(rows=IA_SEARCH_ROWS)
+    candidates = search_movies(rows=IA_SEARCH_ROWS, pages=IA_SEARCH_PAGES)
     log.info("Found %d candidates after license and film-metadata filters.", len(candidates))
 
     for item in candidates:
