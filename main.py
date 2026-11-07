@@ -669,33 +669,34 @@ def video_upload_test():
             log.warning("Could not remove local temporary test video: %s", exc)
 
 
-def queue_reel(video_url,caption):
+def queue_reel(video_url,caption,post_type="reel"):
+    if post_type not in ("post", "reel"):
+        raise RuntimeError("Unsupported Facebook post type.")
     channel=verify_channel()
     channel_id=need("BUFFER_CHANNEL_ID")
-    mutation=f'''mutation CreateFunnyAnimalsReel {{
+    mutation=f\'''mutation CreateFunnyAnimalsVideo {{
       createPost(input: {{
         text: {json.dumps(caption,ensure_ascii=False)}
         channelId: {json.dumps(channel_id)}
         schedulingType: automatic
         mode: addToQueue
         assets: [{{ video: {{ url: {json.dumps(video_url)} }} }}]
-        metadata: {{ facebook: {{ type: reel }} }}
+        metadata: {{ facebook: {{ type: {json.dumps(post_type)} }} }}
         aiAssisted: true
       }}) {{
         ... on PostActionSuccess {{ post {{ id status dueAt channelId }} }}
         ... on MutationError {{ message }}
       }}
-    }}'''
+    }}\'''
     result=buffer_api(mutation).get("createPost") or {}
-    if result.get("message"): raise RuntimeError("Buffer rejected Reel: "+result["message"])
+    if result.get("message"): raise RuntimeError("Buffer rejected Facebook video post: "+result["message"])
     post=result.get("post")
     if not post or not post.get("id"): raise RuntimeError(f"Buffer did not confirm post creation: {result}")
     if post.get("channelId") and post["channelId"]!=channel_id:
         raise RuntimeError("SAFETY STOP: Buffer returned an unexpected destination.")
-    log.info("Buffer accepted Reel %s; status=%s dueAt=%s",post["id"],post.get("status"),post.get("dueAt"))
+    log.info("Buffer accepted Facebook %s %s; status=%s dueAt=%s",post_type,post["id"],post.get("status"),post.get("dueAt"))
     log.info("Accepted/queued is NOT the same as confirmed published on Facebook.")
     return post
-
 
 def validate():
     for key in ("OPENROUTER_API_KEY","CLOUDINARY_CLOUD_NAME","CLOUDINARY_API_KEY","CLOUDINARY_API_SECRET"):
@@ -744,7 +745,13 @@ def main():
 
 if __name__=="__main__":
     logging.basicConfig(level=logging.INFO,format="%(asctime)s | %(levelname)s | %(message)s")
-    try: main()
+    try:
+        # Keep diagnostics available; normal publishing uses the long-form workflow.
+        if any(flag in sys.argv[1:] for flag in ("--validate", "--upload-test", "--video-upload-test", "--preview")):
+            main()
+        else:
+            from longform import run as run_longform
+            run_longform()
     except Exception:
         log.exception("Automation failed safely.")
         sys.exit(1)
