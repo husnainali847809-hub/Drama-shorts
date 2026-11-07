@@ -21,12 +21,12 @@ jobs:
       - name: Install Blender and FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y blender ffmpeg
+          sudo apt-get install -y blender ffmpeg libegl1 libegl-mesa0 libgl1 libglx-mesa0 libgl1-mesa-dri libgbm1
 
       - name: Render 5-second stylized 3D cartoon
         run: |
           mkdir -p output
-          blender --background --python scripts/3d_prototype.py -- --output output/animals-3d-prototype.mp4
+          LIBGL_ALWAYS_SOFTWARE=1 blender --background --python scripts/3d_prototype.py -- --output output/animals-3d-prototype.mp4
 
       - name: Validate rendered video
         run: |
