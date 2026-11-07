@@ -30,4 +30,9 @@ jobs:
       - name: Run source-filter tests
         run: python -m unittest discover -s tests -v
       - name: Smoke-test Wikimedia Commons discovery (no downloads or publishing)
-        run: python -c "from sources.movie_finder import _search_commons_movies; items = _search_commons_movies(limit=20); print(f'Commons eligible candidates: {len(items)}')"
+        run: |
+          python - <<'PY'
+          from sources.movie_finder import _search_commons_movies
+          items = _search_commons_movies(limit=20)
+          print("Commons eligible candidates:", len(items))
+          PY
