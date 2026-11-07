@@ -89,7 +89,7 @@ def has_film_metadata(metadata, fallback_title=""):
     if any(term in classified for term in STRONG_FILM_SIGNALS):
         return True
     genres = _normalize(" ".join(_text(metadata.get(key, "")) for key in ("genre", "subject")))
-    if any(re.search(r"\\b" + re.escape(genre) + r"\\b", genres) for genre in FILM_GENRES):
+    if any(re.search(r"\b" + re.escape(genre) + r"\b", genres) for genre in FILM_GENRES):
         return True
     # Sparse metadata is acceptable only when runtime and a film-credit/catalog
     # signal are both present; this avoids admitting arbitrary video records.
