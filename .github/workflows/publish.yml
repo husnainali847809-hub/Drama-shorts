@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Set true only when you want to generate and queue one original Facebook cartoon video'
+        description: 'Set true only when you want to queue one rights-reviewed licensed Facebook cartoon video'
         required: true
         type: boolean
         default: false
@@ -25,13 +25,12 @@ on:
           - adventure
         default: variety
       source_mode:
-        description: 'Create an original cartoon or use a manually reviewed licensed video'
+        description: 'Use a manually reviewed, commercially reusable internet cartoon video'
         required: true
         type: choice
         options:
-          - original
           - licensed
-        default: original
+        default: licensed
       duration:
         description: 'Target video duration in minutes'
         required: true
@@ -74,7 +73,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Generate original long-form cartoon, upload, and queue Facebook video
+      - name: Prepare licensed internet cartoon, upload, and queue Facebook video
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
@@ -84,7 +83,7 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: funny-animals-comedy
-          CARTOON_SOURCE_MODE: ${{ inputs.source_mode || 'original' }}
+          CARTOON_SOURCE_MODE: ${{ inputs.source_mode || 'licensed' }}
           CARTOON_GENRE: ${{ inputs.genre || 'variety' }}
           CARTOON_DURATION_MINUTES: ${{ inputs.duration || '7' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
