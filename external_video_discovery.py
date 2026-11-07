@@ -24,7 +24,7 @@ LICENSE_MAP = {
 def _text(value):
     if isinstance(value, list):
         value = " ".join(str(x) for x in value)
-    return re.sub(r"\\s+", " ", str(value or "")).strip()[:1200]
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:1200]
 
 def _license(value):
     raw = _text(value).lower().replace("http://", "https://")
