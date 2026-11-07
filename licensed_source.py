@@ -62,7 +62,8 @@ def _load_asset():
         _external_https(item["source_page_url"], "source_page_url")
         _external_https(item["video_url"], "video_url")
         _external_https(item["license_url"], "license_url")
-    return assets[0]
+    index = datetime.now(timezone.utc).date().toordinal() % len(assets)
+    return assets[index]
 
 
 def _download(url, destination):
