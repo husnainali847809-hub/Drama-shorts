@@ -128,7 +128,7 @@ def _release_year(metadata, fallback_date=""):
     # endpoint omits it. Check both rather than rejecting valid records.
     for value in (
         metadata.get("release_year"), metadata.get("year"), metadata.get("date"),
-        metadata.get("issued"), metadata.get("year_published"), metadata.get("originalyear"), fallback_date
+        metadata.get("issued"), metadata.get("year_published"), metadata.get("originalyear"), fallback_date, metadata.get("title")
     ):
         if isinstance(value, (list, tuple)):
             value = " ".join(str(part) for part in value)
@@ -272,8 +272,8 @@ def _search_commons_movies(limit=100):
 
             description = ext_value("ImageDescription")
             object_name = ext_value("ObjectName")
-            artist = ext_value("Artist") or ext_value("Credit") or "Unknown"
-            date_value = ext_value("DateTimeOriginal") or imageinfo.get("timestamp") or ""
+            artist = ext_value("Attribution") or ext_value("Artist") or ext_value("Credit") or "Unknown"
+            date_value = ext_value("DateTimeOriginal") or ""
             categories = [
                 str(category.get("title", "")).replace("Category:", "")
                 for category in page.get("categories", [])
