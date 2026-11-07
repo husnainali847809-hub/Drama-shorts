@@ -44,6 +44,31 @@ jobs:
           import external_video_discovery as ext
           assert ext._license('https://creativecommons.org/licenses/by/4.0/') == 'CC-BY-4.0'
           assert ext._license('All rights reserved') is None
+          # Internet Archive discovery must return candidates (not silently discard
+          # them as an unconsumed generator) and filter known short clips.
+          from unittest.mock import Mock, patch
+          def fake_archive_get(url, params=None, **kwargs):
+              response = Mock()
+              response.raise_for_status = lambda: None
+              if url == ext.IA_SEARCH:
+                  response.json.return_value = {'response': {'docs': [
+                      {'identifier': 'short-cartoon', 'title': 'Short cartoon', 'licenseurl': 'https://creativecommons.org/licenses/by/4.0/'},
+                      {'identifier': 'full-cartoon', 'title': 'Full cartoon', 'licenseurl': 'https://creativecommons.org/licenses/by/4.0/'}
+                  ]}}
+              else:
+                  identifier = url.rsplit('/', 1)[-1]
+                  duration = '120' if identifier == 'short-cartoon' else '420'
+                  response.json.return_value = {'files': [
+                      {'name': identifier + '.mp4', 'length': duration, 'size': '1000'}
+                  ]}
+              return response
+          with patch('external_video_discovery.requests.get', side_effect=fake_archive_get):
+              ia_results = ext.discover_internet_archive(5, queries=['test animation'])
+          ia_candidates = [x for x in ia_results if '_source_error' not in x]
+          assert len(ia_candidates) == 1
+          assert ia_candidates[0]['title'] == 'Full cartoon'
+          assert ia_candidates[0]['duration_seconds'] == 420
+          assert ia_candidates[0]['duration_status'] == 'meets_minimum_duration'
           assert ext.discover_youtube_creative_commons(3)['status'] == 'not_configured' if not __import__('os').getenv('YOUTUBE_API_KEY') else True
           assert d.clean('  two   words ') == 'two words'
           assert d.normalize_video_license('CC BY-SA 4.0') == 'CC-BY-SA-4.0'
