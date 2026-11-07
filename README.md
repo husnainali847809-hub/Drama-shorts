@@ -7,9 +7,9 @@ GitHub Actions starts five times daily at 08:00, 11:00, 14:00, 17:00 and 20:00 P
 
 ## Video format
 - Live-action feature-film candidates only; animation, anime, cartoons, gaming footage, TV episodes, events and meeting recordings are filtered out.
-- Scene length: 90–180 seconds (1:30–3:00).
+- Scene length: 85–89 seconds (configured for the current Facebook Reel workflow).
 - Release year 2008 or newer; unknown/older years are rejected.
-- Native Full HD source and at least 2 Mbps bitrate required.
+- Native Full HD source and at least 2 Mbps bitrate required. Low-resolution sources are rejected, not falsely labelled Full HD after upscaling.
 - Vertical 1080×1920 (9:16). The complete movie frame is fitted over a blurred vertical background to avoid excessive zoom/cropping.
 - Original movie audio/dialogue is retained.
 - Fast-cut action-like scenes receive an original synthesized fight instrumental underneath. Other scenes retain original audio only. Scene detection is a cut-rate heuristic, not semantic AI.
