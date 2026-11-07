@@ -1,5 +1,4 @@
-requests>=2.32.0
+edge-tts>=7.0.0
 python-dotenv>=1.0.1
 cloudinary>=1.40.0
-fal-client>=0.7.0
-edge-tts>=7.0.0
+requests>=2.32.0
