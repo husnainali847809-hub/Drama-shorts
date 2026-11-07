@@ -1,6 +1,15 @@
 name: Long-Form Cartoon Code Check
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'main.py'
+      - 'longform.py'
+      - 'licensed_source.py'
+      - 'licensed_assets.json'
+      - 'requirements.txt'
+      - '.github/workflows/check-longform.yml'
   workflow_dispatch:
 
 permissions:
@@ -23,5 +32,7 @@ jobs:
           pip install -r requirements.txt
       - name: Compile Python modules
         run: python -m py_compile main.py longform.py licensed_source.py
+      - name: Validate licensed asset manifest JSON
+        run: python -c "import json; json.load(open('licensed_assets.json', encoding='utf-8')); print('Licensed asset manifest JSON OK.')"
       - name: Import long-form generator without credentials
         run: python -c "import longform, licensed_source; print('Long-form and licensed-source modules import OK; no upload or publishing performed.')"
