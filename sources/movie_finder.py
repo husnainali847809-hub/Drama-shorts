@@ -203,9 +203,9 @@ def _search_commons_movies(limit=100):
             "action": "query",
             "prop": "imageinfo|categories",
             "titles": "|".join(batch),
-            "iiprop": "url|size|mime|mediatype|extmetadata",
+            "iiprop": "url|size|dimensions|mime|mediatype|extmetadata",
             "iiextmetadatalanguage": "en",
-            "iiextmetadatafilter": "LicenseUrl|LicenseShortName|Artist|Credit|DateTimeOriginal|ImageDescription|ObjectName|UsageTerms",
+            "iiextmetadatafilter": "LicenseUrl|LicenseShortName|Artist|Credit|DateTimeOriginal|ImageDescription|ObjectName|UsageTerms|License|Attribution",
             "cllimit": "max",
             "clshow": "!hidden",
             "format": "json",
@@ -255,8 +255,18 @@ def _search_commons_movies(limit=100):
                 value = (ext.get(key) or {}).get("value", "")
                 return _plain_html(value)
 
-            license_url = ext_value("LicenseUrl")
-            if not license_is_allowed(license_url):
+            raw_license_url = str((ext.get("LicenseUrl") or {}).get("value", "") or "")
+            license_match = re.search(r'href=["\\']([^"\\']+)["\\']', raw_license_url, flags=re.IGNORECASE)
+            license_url = license_match.group(1) if license_match else _plain_html(raw_license_url)
+
+            # Commons documents that machine-readable license fields can be unreliable
+            # for multi-licensed files. Reject records exposing multiple distinct license links.
+            raw_license_block = str((ext.get("License") or {}).get("value", "") or "")
+            license_links = {
+                _plain_html(link).rstrip("/")
+                for link in re.findall(r'href=["\\']([^"\\']+)["\\']', raw_license_block, flags=re.IGNORECASE)
+            }
+            if len(license_links) > 1 or not license_is_allowed(license_url):
                 rejected["license"] += 1
                 continue
 
