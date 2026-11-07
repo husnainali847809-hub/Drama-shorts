@@ -91,11 +91,13 @@ def has_film_metadata(metadata, fallback_title=""):
     genres = _normalize(" ".join(_text(metadata.get(key, "")) for key in ("genre", "subject")))
     if any(re.search(r"\b" + re.escape(genre) + r"\b", genres) for genre in FILM_GENRES):
         return True
-    # Sparse metadata is acceptable only when runtime and a film-credit/catalog
-    # signal are both present; this avoids admitting arbitrary video records.
-    runtime = _normalize(metadata.get("runtime"))
-    credits = any(_normalize(metadata.get(key)) for key in ("director", "cast", "imdb", "imdb_id"))
-    return bool(runtime and credits)
+    # Internet Archive often has sparse genre fields. A dated movie record
+    # with a substantial synopsis is still a plausible film even when genre,
+    # runtime or IMDb fields are absent. Non-movie/animation checks run first.
+    title = _normalize(metadata.get("title") or fallback_title)
+    description = _text(metadata.get("description", "")).strip()
+    has_specific_title = len(title.split()) >= 2 and title not in {"unknown", "untitled", "video", "movie"}
+    return bool(has_specific_title and len(description) >= 120)
 
 
 def _release_year(metadata, fallback_date=""):
@@ -127,7 +129,7 @@ def _search_docs(query, rows):
     return response.json().get("response", {}).get("docs", [])
 
 
-def search_movies(rows=100):
+def search_movies(rows=250):
     # The licenseurl field is inconsistently indexed by Archive.org. Search
     # the movie collection broadly if the indexed-license query returns none;
     # every record still passes the exact license allowlist below.
