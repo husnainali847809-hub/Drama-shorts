@@ -35,7 +35,7 @@ NON_MOVIE_TERMS = (
     "township", "agenda", "meeting minutes", "livestream", "live stream",
     "webcast", "recorded session", "public access", "vlog",
     "behind the scenes", "interview", "audition", "rap battle",
-    "team mission", "full version", "official trailer", "teaser",
+    "team mission", "full version", "official trailer", "trailer", "teaser", "promotional video", "promo video", "movie clip", "film excerpt",
     "preview", "performance", "풀버전", "무삭제", "브이로그", "예고편",
     "dvdrip", "dvd rip", "brrip", "bdrip", "bluray rip", "blu-ray rip",
     "webrip", "web rip", "camrip", "cam rip", "hdcam", "pre dvdrip",
@@ -256,7 +256,7 @@ def _search_commons_movies(limit=100):
                 return _plain_html(value)
 
             raw_license_url = str((ext.get("LicenseUrl") or {}).get("value", "") or "")
-            license_match = re.search(r'href=["\\']([^"\\']+)["\\']', raw_license_url, flags=re.IGNORECASE)
+            license_match = re.search(r"""href=["']([^"']+)["']""", raw_license_url, flags=re.IGNORECASE)
             license_url = license_match.group(1) if license_match else _plain_html(raw_license_url)
 
             # Commons documents that machine-readable license fields can be unreliable
@@ -264,7 +264,7 @@ def _search_commons_movies(limit=100):
             raw_license_block = str((ext.get("License") or {}).get("value", "") or "")
             license_links = {
                 _plain_html(link).rstrip("/")
-                for link in re.findall(r'href=["\\']([^"\\']+)["\\']', raw_license_block, flags=re.IGNORECASE)
+                for link in re.findall(r"""href=["']([^"']+)["']""", raw_license_block, flags=re.IGNORECASE)
             }
             if len(license_links) > 1 or not license_is_allowed(license_url):
                 rejected["license"] += 1
