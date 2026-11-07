@@ -35,4 +35,12 @@ jobs:
           from sources.movie_finder import _search_commons_movies
           items = _search_commons_movies(limit=100)
           print("Commons eligible candidates:", len(items))
+          for item in items:
+              print({
+                  "title": item["title"],
+                  "creator": item["creator"],
+                  "license_url": item["license_url"],
+                  "source_resolution": f'{item["source_width"]}x{item["source_height"]}',
+                  "details_url": item["details_url"],
+              })
           PY
