@@ -4,11 +4,11 @@ Private GitHub Actions project for discovering existing cartoon videos and popul
 
 ## New content workflow
 
-1. **Cartoon discovery:** \`discover_content.py\` searches Wikimedia Commons for video files whose metadata declares CC0, CC BY 4.0, CC BY-SA 4.0 or Public Domain Mark 1.0.
+1. **Cartoon discovery:** `discover_content.py` searches Wikimedia Commons for video files whose metadata declares CC0, CC BY 4.0, CC BY-SA 4.0 or Public Domain Mark 1.0.
 2. **Story discovery:** the same report searches Project Gutenberg for popular classic story texts and ranks candidates by catalog download counts.
 3. **Review report:** GitHub Actions saves JSON and Markdown reports as a downloadable workflow artifact. Discovery does not download videos, approve rights, or publish anything.
 4. **Human rights review:** a person checks the exact source file, creator, license, music, voices, characters, translations, worldwide rights and duration.
-5. **Licensed publishing:** only entries manually approved in \`licensed_assets.json\` can be downloaded, branded with attribution, uploaded to Cloudinary and queued through the existing Buffer Facebook channel.
+5. **Licensed publishing:** only entries manually approved in `licensed_assets.json` can be downloaded, branded with attribution, uploaded to Cloudinary and queued through the existing Buffer Facebook channel.
 
 Motu Patlu and Chhota Bheem are included as reference-only names. The system does not download or re-upload their episodes unless the rights holder provides permission or a valid license for the exact work.
 
@@ -25,9 +25,9 @@ The report contains:
 
 ## Publishing mode
 
-AI-generated cartoon publishing is disabled. The publisher defaults to \`CARTOON_SOURCE_MODE=licensed\` and only accepts the licensed source mode.
+AI-generated cartoon publishing is disabled. The publisher defaults to `CARTOON_SOURCE_MODE=licensed` and only accepts the licensed source mode.
 
-The manual publisher supports 5, 7 or 10 minute videos. A selected source must match the duration range and pass the video validation checks. If \`licensed_assets.json\` is empty or a rights declaration is missing, publishing stops safely before upload.
+The manual publisher supports 5, 7 or 10 minute videos. A selected source must match the duration range and pass the video validation checks. If `licensed_assets.json` is empty or a rights declaration is missing, publishing stops safely before upload.
 
 Each manifest entry must include:
 - Exact work title and creator/rightsholder.
@@ -58,15 +58,15 @@ A Buffer accepted/queued response is not proof that Facebook has published the p
 Open **Settings → Secrets and variables → Actions**.
 
 ### Repository secrets
-- \`BUFFER_API_KEY\`
-- \`CLOUDINARY_CLOUD_NAME\`
-- \`CLOUDINARY_API_KEY\`
-- \`CLOUDINARY_API_SECRET\`
+- `BUFFER_API_KEY`
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
 
 ### Repository variables
-- \`BUFFER_CHANNEL_ID\` — exact intended Facebook Page channel ID in Buffer.
-- \`BUFFER_EXPECTED_CHANNEL_NAME\` — exact Buffer channel name used for safety validation and video branding.
-- \`ENABLE_AUTO_PUBLISH\` — keep unset/false until a manual licensed-video test has been reviewed.
+- `BUFFER_CHANNEL_ID` — exact intended Facebook Page channel ID in Buffer.
+- `BUFFER_EXPECTED_CHANNEL_NAME` — exact Buffer channel name used for safety validation and video branding.
+- `ENABLE_AUTO_PUBLISH` — keep unset/false until a manual licensed-video test has been reviewed.
 
 The discovery workflow does not use these secrets. Never place secret values in source code, README files, workflow YAML or reports.
 
@@ -74,26 +74,26 @@ The discovery workflow does not use these secrets. Never place secret values in 
 
 1. Run the **Internet Cartoon & Story Discovery** workflow and download its report artifact.
 2. Review one exact cartoon video and all rights evidence.
-3. Add it to \`licensed_assets.json\` only after confirming the required commercial and worldwide rights.
+3. Add it to `licensed_assets.json` only after confirming the required commercial and worldwide rights.
 4. Open **Actions → Long-Form Cartoon Daily Publisher → Run workflow**.
-5. Set \`publish=true\`, select \`licensed\`, and choose 5, 7 or 10 minutes.
+5. Set `publish=true`, select `licensed`, and choose 5, 7 or 10 minutes.
 6. Inspect the Buffer queue entry before enabling daily automatic queueing.
 
-Automatic daily queueing remains disabled unless \`ENABLE_AUTO_PUBLISH=true\`. The existing schedule is 13:00 UTC (18:00 Pakistan Standard Time); GitHub may start scheduled jobs later than the exact cron time.
+Automatic daily queueing remains disabled unless `ENABLE_AUTO_PUBLISH=true`. The existing schedule is 13:00 UTC (18:00 Pakistan Standard Time); GitHub may start scheduled jobs later than the exact cron time.
 
 ## Project files
 
-- \`main.py\` — existing diagnostics, Cloudinary upload, Buffer channel verification and Facebook post queueing.
-- \`longform.py\` — licensed video upload orchestration; AI-generated publishing is blocked.
-- \`licensed_source.py\` — rights-gated download, attribution overlay and licensed-source upload.
-- \`licensed_assets.json\` — manually reviewed licensed video manifest (empty by default).
-- \`discover_content.py\` — Wikimedia Commons cartoon video and Project Gutenberg story discovery.
-- \`docs/CONTENT_DISCOVERY.md\` — discovery report and review guide.
-- \`docs/LICENSED_VIDEO_SOURCING.md\` — license and manifest instructions.
-- \`.github/workflows/discover-content.yml\` — weekly/manual non-publishing discovery.
-- \`.github/workflows/publish.yml\` — daily/manual licensed video publisher.
-- \`.github/workflows/check-longform.yml\` — syntax, import and manifest validation.
-- \`.env.example\` — variable names only; no credentials.
+- `main.py` — existing diagnostics, Cloudinary upload, Buffer channel verification and Facebook post queueing.
+- `longform.py` — licensed video upload orchestration; AI-generated publishing is blocked.
+- `licensed_source.py` — rights-gated download, attribution overlay and licensed-source upload.
+- `licensed_assets.json` — manually reviewed licensed video manifest (empty by default).
+- `discover_content.py` — Wikimedia Commons cartoon video and Project Gutenberg story discovery.
+- `docs/CONTENT_DISCOVERY.md` — discovery report and review guide.
+- `docs/LICENSED_VIDEO_SOURCING.md` — license and manifest instructions.
+- `.github/workflows/discover-content.yml` — weekly/manual non-publishing discovery.
+- `.github/workflows/publish.yml` — daily/manual licensed video publisher.
+- `.github/workflows/check-longform.yml` — syntax, import and manifest validation.
+- `.env.example` — variable names only; no credentials.
 
 ## Privacy and cost
 
