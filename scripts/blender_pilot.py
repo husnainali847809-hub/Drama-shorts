@@ -107,7 +107,7 @@ def build(idx,seconds,out):
     light=bpy.context.object; light.data.energy=1200; light.data.shape="DISK"; light.data.size=8
     s=bpy.context.scene
     s.render.engine="BLENDER_EEVEE_NEXT" if bpy.app.version >= (4,2,0) else "BLENDER_EEVEE"
-    s.render.resolution_x=720; s.render.resolution_y=1280; s.render.resolution_percentage=75
+    s.render.resolution_x=720; s.render.resolution_y=1280; s.render.resolution_percentage=100
     s.render.fps=24; s.frame_start=1; s.frame_end=seconds*24
     s.render.image_settings.file_format="FFMPEG"
     s.render.ffmpeg.format="MPEG4"; s.render.ffmpeg.codec="H264"
