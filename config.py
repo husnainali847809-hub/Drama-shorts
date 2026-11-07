@@ -21,3 +21,6 @@ for folder in (OUTPUT_DIR, DOWNLOAD_DIR, MUSIC_DIR):
     folder.mkdir(parents=True, exist_ok=True)
 
 COMMONS_SEARCH_LIMIT = max(20, min(int(os.getenv("COMMONS_SEARCH_LIMIT", "100")), 150))
+# Old public-domain films are eligible too; the actual source must still pass FFprobe Full HD checks.
+MIN_RELEASE_YEAR = max(1890, int(os.getenv("MIN_RELEASE_YEAR", "1890")))
+
