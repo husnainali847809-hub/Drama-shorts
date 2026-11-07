@@ -89,7 +89,13 @@ def has_film_metadata(metadata, fallback_title=""):
     if any(term in classified for term in STRONG_FILM_SIGNALS):
         return True
     genres = _normalize(" ".join(_text(metadata.get(key, "")) for key in ("genre", "subject")))
-    return any(re.search(r"\b" + re.escape(genre) + r"\b", genres) for genre in FILM_GENRES)
+    if any(re.search(r"\\b" + re.escape(genre) + r"\\b", genres) for genre in FILM_GENRES):
+        return True
+    # Sparse metadata is acceptable only when runtime and a film-credit/catalog
+    # signal are both present; this avoids admitting arbitrary video records.
+    runtime = _normalize(metadata.get("runtime"))
+    credits = any(_normalize(metadata.get(key)) for key in ("director", "cast", "imdb", "imdb_id"))
+    return bool(runtime and credits)
 
 
 def _release_year(metadata, fallback_date=""):
@@ -97,7 +103,7 @@ def _release_year(metadata, fallback_date=""):
     # endpoint omits it. Check both rather than rejecting valid records.
     for value in (
         metadata.get("release_year"), metadata.get("year"), metadata.get("date"),
-        metadata.get("issued"), metadata.get("year_published"), metadata.get("originalyear"), metadata.get("year"), fallback_date
+        metadata.get("issued"), metadata.get("year_published"), metadata.get("originalyear"), fallback_date
     ):
         if isinstance(value, (list, tuple)):
             value = " ".join(str(part) for part in value)
