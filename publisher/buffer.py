@@ -61,7 +61,7 @@ def queue_facebook_reel(video_url, caption):
         schedulingType: automatic
         mode: addToQueue
         assets: [{{ video: {{ url: {json.dumps(video_url)} }} }}]
-        metadata: {{ facebook: {{ type: reel }} }}
+        metadata: {{ facebook: {{ type: "reel" }} }}
         aiAssisted: false
       }}) {{
         ... on PostActionSuccess {{ post {{ id status dueAt channelId }} }}
