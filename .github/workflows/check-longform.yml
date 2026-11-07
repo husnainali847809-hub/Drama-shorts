@@ -36,8 +36,25 @@ jobs:
           pip install -r requirements.txt
       - name: Compile Python modules
         run: python -m py_compile main.py longform.py licensed_source.py discover_content.py
-      - name: Test discovery text and license normalization
-        run: python -c "import discover_content as d; assert d.clean('  two   words ') == 'two words'; assert d.normalize_video_license('CC BY-SA 4.0') == 'CC-BY-SA-4.0'; assert d.normalize_video_license('All rights reserved') is None; print('Discovery normalization checks OK.')"
+      - name: Test discovery selectors and license normalization
+        run: |
+          python - <<'PY'
+          import discover_content as d
+          assert d.clean('  two   words ') == 'two words'
+          assert d.normalize_video_license('CC BY-SA 4.0') == 'CC-BY-SA-4.0'
+          assert d.normalize_video_license('All rights reserved') is None
+          assert 'Motu Patlu' in d.REFERENCE_ONLY_FRANCHISES
+          assert 'Chhota Bheem' in d.REFERENCE_ONLY_FRANCHISES
+          assert 'Cinderella' in d.CLASSIC_STORY_SEARCHES
+          assert 'Alice\'s Adventures in Wonderland' in d.CLASSIC_STORY_SEARCHES
+          try:
+              d.build_report(1, franchise='not-a-real-franchise')
+          except ValueError:
+              pass
+          else:
+              raise AssertionError('Unknown franchise selection was accepted')
+          print('Discovery selector and license checks OK.')
+          PY
       - name: Validate licensed asset manifest JSON
         run: python -c "import json; json.load(open('licensed_assets.json', encoding='utf-8')); print('Licensed asset manifest JSON OK.')"
       - name: Import long-form generator without credentials
