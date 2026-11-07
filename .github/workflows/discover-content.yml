@@ -1,6 +1,12 @@
 name: Internet Cartoon & Story Discovery
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'discover_content.py'
+      - 'external_video_discovery.py'
+      - '.github/workflows/discover-content.yml'
   schedule:
     - cron: '0 8 * * 1'
   workflow_dispatch:
