@@ -1,24 +1,57 @@
-name: Animal AI — Manual Setup Check
+name: Animal AI — Cloud Pilot Render
+
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: animal-ai-cloud-pilot
+  cancel-in-progress: false
+
 jobs:
-  setup-check:
+  render-pilot:
+    name: Render review-only animal pilot
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install FFmpeg
+
+      - name: Install Blender and FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Verify free pipeline
+          sudo apt-get install -y blender ffmpeg
+
+      - name: Install Python dependencies
         run: |
-          python -m py_compile main.py animal_ai/pipeline.py animal_ai/story.py
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify render tools
+        run: |
+          blender --version
           ffmpeg -version
-          echo "No fal.ai key required. Render locally on the creator's PC."
+          python -m py_compile main.py animal_ai/pipeline.py animal_ai/story.py
+
+      - name: Generate the 3D animal pilot
+        env:
+          BLENDER_EXE: /usr/bin/blender
+        run: python main.py --generate --pilot
+
+      - name: Upload final review video
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: animal-pilot-review
+          path: |
+            output/animal_pilot/PILOT_Timo_and_Bunny_REVIEW_ONLY.mp4
+            output/animal_pilot/review_metadata.json
+          if-no-files-found: error
+          retention-days: 7
