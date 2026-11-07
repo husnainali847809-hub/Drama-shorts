@@ -39,8 +39,22 @@ def generate_pilot():
     clips=[]
     for i,s in enumerate(SCENES,1):
         clip=OUT/f"scene_{i:02d}.mp4"
+        frames_dir=OUT/f"scene_{i:02d}_frames"
+        frames_dir.mkdir(parents=True,exist_ok=True)
         run([blender,"-b","--threads",os.getenv("BLENDER_THREADS","2"),"--python",SCRIPT,"--","--scene-index",i,"--seconds",s["seconds"],"--output",clip])
-        if not clip.is_file() or clip.stat().st_size<10000: raise RuntimeError(f"Blender did not create scene {i}.")
+        first_frame=frames_dir/"frame_0001.png"
+        if not first_frame.is_file():
+            found=list(frames_dir.glob("*.png"))
+            raise RuntimeError(
+                f"Blender did not create scene {i} frames in {frames_dir}. "
+                f"Found {len(found)} PNG files. Check the Blender output above."
+            )
+        run(["ffmpeg","-y","-framerate","24","-i",frames_dir/"frame_%04d.png",
+             "-c:v","libx264","-preset","ultrafast","-crf","24",
+             "-pix_fmt","yuv420p","-movflags","+faststart",clip])
+        if not clip.is_file() or clip.stat().st_size<10000:
+            raise RuntimeError(f"FFmpeg did not encode scene {i} from PNG frames.")
+        shutil.rmtree(frames_dir)
         clips.append(clip)
     listing=OUT/"video_concat.txt"
     listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in clips),encoding="utf-8")
