@@ -76,9 +76,9 @@ def looks_like_non_movie(metadata, fallback_title=""):
     if any(term in searchable for term in NON_MOVIE_TERMS):
         return True
     title = _normalize(metadata.get("title") or fallback_title)
-    if re.search(r"\\bs\\d{1,2}\\s*e\\d{1,3}\\b", title):
+    if re.search(r"\bs\d{1,2}\s*e\d{1,3}\b", title):
         return True
-    if re.search(r"\\bseason\\s*\\d+\\s*episode\\s*\\d+\\b", title):
+    if re.search(r"\bseason\s*\d+\s*episode\s*\d+\b", title):
         return True
     return False
 
@@ -89,7 +89,7 @@ def has_film_metadata(metadata, fallback_title=""):
     if any(term in classified for term in STRONG_FILM_SIGNALS):
         return True
     genres = _normalize(" ".join(_text(metadata.get(key, "")) for key in ("genre", "subject")))
-    return any(re.search(r"\\b" + re.escape(genre) + r"\\b", genres) for genre in FILM_GENRES)
+    return any(re.search(r"\b" + re.escape(genre) + r"\b", genres) for genre in FILM_GENRES)
 
 
 def _release_year(metadata, fallback_date=""):
@@ -101,7 +101,7 @@ def _release_year(metadata, fallback_date=""):
     ):
         if isinstance(value, (list, tuple)):
             value = " ".join(str(part) for part in value)
-        match = re.search(r"(?<!\\d)(19\\d{2}|20\\d{2})(?!\\d)", str(value or ""))
+        match = re.search(r"(?<!\d)(19\d{2}|20\d{2})(?!\d)", str(value or ""))
         if match:
             return int(match.group(1))
     return None
