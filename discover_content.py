@@ -47,7 +47,7 @@ REFERENCE_ONLY_FRANCHISES = (
 
 def clean(value, limit=500):
     text = html.unescape(re.sub(r"<[^>]+>", " ", str(value or "")))
-    return re.sub(r"\\s+", " ", text).strip()[:limit]
+    return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
 def get_json(url, params=None):
@@ -243,7 +243,7 @@ def write_report(report):
             lines.append(f"- {error['source']}: {error['error']}")
     else:
         lines.append("- None")
-    md_path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return json_path, md_path
 
 
