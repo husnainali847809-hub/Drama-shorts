@@ -54,7 +54,7 @@ def queue_facebook_video(video_url, caption):
     channel_id = _need("BUFFER_CHANNEL_ID")
     if not video_url.startswith("https://res.cloudinary.com/"):
         raise RuntimeError("Only a public Cloudinary HTTPS video URL may be queued.")
-    mutation = f'''mutation QueueMovieFacebookReel {{
+    mutation = f'''mutation QueueMovieFacebookVideo {{
       createPost(input: {{
         text: {json.dumps(caption, ensure_ascii=False)}
         channelId: {json.dumps(channel_id)}
@@ -70,7 +70,7 @@ def queue_facebook_video(video_url, caption):
     }}'''
     result = buffer_api(mutation).get("createPost") or {}
     if result.get("message"):
-        raise RuntimeError("Buffer rejected Facebook Reel: " + result["message"])
+        raise RuntimeError("Buffer rejected Facebook video post: " + result["message"])
     post = result.get("post")
     if not post or not post.get("id"):
         raise RuntimeError(f"Buffer did not confirm queue creation: {result}")
