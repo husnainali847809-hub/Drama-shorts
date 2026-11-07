@@ -15,6 +15,7 @@ on:
         required: true
         type: choice
         options:
+          - variety
           - comedy
           - kids-adventure
           - moral-story
@@ -22,7 +23,7 @@ on:
           - mystery
           - horror
           - adventure
-        default: comedy
+        default: variety
       duration:
         description: 'Target video duration in minutes'
         required: true
@@ -75,7 +76,7 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: funny-animals-comedy
-          CARTOON_GENRE: ${{ inputs.genre || 'comedy' }}
+          CARTOON_GENRE: ${{ inputs.genre || 'variety' }}
           CARTOON_DURATION_MINUTES: ${{ inputs.duration || '7' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
