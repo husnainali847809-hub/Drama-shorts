@@ -3,7 +3,7 @@
 This repository now runs Movie Reels Publisher instead of the former animal/cartoon automation.
 
 ## Daily schedule
-GitHub Actions starts five times daily at 08:00, 11:00, 14:00, 17:00 and 20:00 Pakistan Standard Time (UTC+5). Each run processes at most one video and adds it to the connected Facebook channel's Buffer queue. These are five attempts, not a guarantee of five posts: there may not be five eligible, unused, licensed film sources each day.
+GitHub Actions starts five times daily at 08:00, 11:00, 14:00, 17:00 and 20:00 Pakistan Standard Time (UTC+5). Each run processes at most one video and adds it to the connected Facebook channel's Buffer queue. Buffer publishes according to the posting slots configured in the Buffer channel, so configure 4–5 daily queue slots there as well. These are five attempts, not a guarantee of five posts: there may not be five eligible, unused, licensed film sources each day.
 
 ## Video format
 - Live-action film sources only; obvious animation/cartoon/anime and common non-film records are filtered.
