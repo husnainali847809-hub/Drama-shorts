@@ -22,6 +22,8 @@ A site or search filter is not a guarantee that a particular video is safe for c
 
 The code's boolean rights fields are human attestations, not legal verification. Do not set them to true just to make the workflow pass.
 
+For CC-BY-SA-4.0 sources, the manifest must also contain `share_alike_compliance_confirmed: true`. Set it only after confirming that the Facebook adaptation is actually offered under the same CC BY-SA license. The generated caption explicitly states that the posted adaptation is offered under CC BY-SA 4.0. If you cannot comply with share-alike terms, do not use that source.
+
 ## Manifest format
 
 Add a reviewed item to `licensed_assets.json`:
