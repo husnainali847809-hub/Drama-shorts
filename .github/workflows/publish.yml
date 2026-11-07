@@ -24,6 +24,14 @@ on:
           - horror
           - adventure
         default: variety
+      source_mode:
+        description: 'Create an original cartoon or use a manually reviewed licensed video'
+        required: true
+        type: choice
+        options:
+          - original
+          - licensed
+        default: original
       duration:
         description: 'Target video duration in minutes'
         required: true
@@ -57,7 +65,7 @@ jobs:
           python-version: '3.11'
           cache: pip
       - name: Check Python source syntax
-        run: python -m py_compile main.py longform.py
+        run: python -m py_compile main.py longform.py licensed_source.py
       - name: Install FFmpeg
         run: |
           sudo apt-get update
@@ -76,6 +84,7 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: funny-animals-comedy
+          CARTOON_SOURCE_MODE: ${{ inputs.source_mode || 'original' }}
           CARTOON_GENRE: ${{ inputs.genre || 'variety' }}
           CARTOON_DURATION_MINUTES: ${{ inputs.duration || '7' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
