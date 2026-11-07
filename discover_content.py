@@ -9,15 +9,33 @@ import html
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = ROOT / "output"
-USER_AGENT = "AnimalsAIContentDiscovery/1.0 (rights-review workflow)"
+USER_AGENT = "AnimalsAIContentDiscovery/1.1 (rights-review workflow)"
+DISCOVERY_WARNINGS = []
+SESSION = requests.Session()
+RETRY_POLICY = Retry(
+    total=4,
+    connect=4,
+    read=4,
+    status=4,
+    backoff_factor=2,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET"]),
+    respect_retry_after_header=True,
+)
+ADAPTER = HTTPAdapter(max_retries=RETRY_POLICY)
+SESSION.mount("https://", ADAPTER)
+SESSION.mount("http://", ADAPTER)
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 GUTENDEX_API = "https://gutendex.com/books/"
 VIDEO_LICENSES = {
@@ -72,14 +90,20 @@ def clean(value, limit=500):
 
 
 def get_json(url, params=None):
-    response = requests.get(
-        url,
-        params=params,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-        timeout=(15, 45),
-    )
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = SESSION.get(
+            url,
+            params=params,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=(20, 60),
+        )
+        response.raise_for_status()
+        time.sleep(1.0)  # Be polite to public APIs and reduce HTTP 429 responses.
+        return response.json()
+    except Exception as exc:
+        DISCOVERY_WARNINGS.append({"source": url, "error": str(exc)[:500]})
+        logging.warning("Discovery request failed after retries: %s | %s", url, exc)
+        return {}
 
 
 def normalize_video_license(short_name):
@@ -89,7 +113,7 @@ def normalize_video_license(short_name):
 def discover_cartoon_videos(limit=15, queries=None):
     """Find Commons video files with recognized reuse-friendly license labels."""
     found = {}
-    for term in (queries or CARTOON_SEARCHES):
+    for term in dict.fromkeys(queries or CARTOON_SEARCHES):
         data = get_json(COMMONS_API, {
             "action": "query",
             "format": "json",
@@ -149,7 +173,7 @@ def discover_cartoon_videos(limit=15, queries=None):
 def discover_story_sources(limit=20, searches=None):
     """Find popular classic story texts; Gutenberg jurisdiction must be reviewed."""
     found = {}
-    for term in (searches or STORY_SEARCHES):
+    for term in dict.fromkeys(searches or STORY_SEARCHES):
         data = get_json(GUTENDEX_API, {"search": term, "page": 1})
         for book in data.get("results", []):
             book_id = book.get("id")
@@ -211,7 +235,7 @@ def build_report(limit=15, franchise="all", story="all"):
     }
     stories = []
     try:
-        stories = discover_story_sources(limit, searches=story_queries + list(STORY_SEARCHES))
+        stories = discover_story_sources(limit, searches=list(dict.fromkeys(story_queries + list(STORY_SEARCHES))))
         report["popular_story_source_candidates"] = stories
         logging.info("Project Gutenberg story sources: %s candidate(s)", len(stories))
     except Exception as exc:
@@ -220,7 +244,7 @@ def build_report(limit=15, franchise="all", story="all"):
 
     try:
         report["cartoon_video_candidates"] = discover_cartoon_videos(
-            limit, queries=franchise_queries + list(CARTOON_SEARCHES)
+            limit, queries=list(dict.fromkeys(franchise_queries + list(CARTOON_SEARCHES)))
         )
         logging.info("Wikimedia Commons cartoon videos: %s candidate(s)", len(report["cartoon_video_candidates"]))
         report["franchise_searches"] = [
@@ -238,6 +262,8 @@ def build_report(limit=15, franchise="all", story="all"):
     except Exception as exc:
         logging.exception("Wikimedia Commons cartoon discovery failed")
         report["source_errors"].append({"source": "Wikimedia Commons cartoon videos", "error": str(exc)[:500]})
+
+    report["source_errors"].extend(DISCOVERY_WARNINGS)
 
     story_titles = [item["title"] for item in stories[:5] if item.get("title")]
     if story_titles:
