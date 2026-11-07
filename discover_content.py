@@ -263,8 +263,6 @@ def build_report(limit=15, franchise="all", story="all"):
         logging.exception("Wikimedia Commons cartoon discovery failed")
         report["source_errors"].append({"source": "Wikimedia Commons cartoon videos", "error": str(exc)[:500]})
 
-    report["source_errors"].extend(DISCOVERY_WARNINGS)
-
     story_titles = [item["title"] for item in stories[:5] if item.get("title")]
     if story_titles:
         try:
@@ -278,6 +276,7 @@ def build_report(limit=15, franchise="all", story="all"):
         except Exception as exc:
             logging.exception("Story-title cartoon search failed")
             report["source_errors"].append({"source": "Story-title cartoon videos", "error": str(exc)[:500]})
+    report["source_errors"].extend(DISCOVERY_WARNINGS)
     return report
 
 def write_report(report):
