@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import requests
+from external_video_discovery import discover_internet_archive, discover_youtube_creative_commons
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -362,6 +363,8 @@ def build_report(limit=15, franchise="all", story="all"):
             "added to the approved manifest, or published automatically."
         ),
         "cartoon_video_candidates": [],
+        "internet_archive_video_candidates": [],
+        "youtube_discovery": {"status": "not_run", "notice": "", "candidates": []},
         "story_based_cartoon_video_candidates": [],
         "popular_story_source_candidates": [],
         "story_source_fallback_used": False,
@@ -431,6 +434,22 @@ def build_report(limit=15, franchise="all", story="all"):
         except Exception as exc:
             logging.exception("Story-title cartoon search failed")
             report["source_errors"].append({"source": "Story-title cartoon videos", "error": str(exc)[:500]})
+    # Additional public-source discovery. These results are candidates only.
+    try:
+        for result in discover_internet_archive(limit):
+            if "_source_error" in result:
+                report["source_errors"].append(result["_source_error"])
+            else:
+                report["internet_archive_video_candidates"].append(result)
+    except Exception as exc:
+        report["source_errors"].append({"source": "Internet Archive", "error": str(exc)[:500]})
+    try:
+        report["youtube_discovery"] = discover_youtube_creative_commons(
+            limit=min(limit, 10),
+            queries=["animated cartoon full episode", "classic animated short film", "animated fairy tale"],
+        )
+    except Exception as exc:
+        report["youtube_discovery"] = {"status": "error", "notice": str(exc)[:500], "candidates": []}
     report["source_errors"].extend(DISCOVERY_WARNINGS)
     return report
 
