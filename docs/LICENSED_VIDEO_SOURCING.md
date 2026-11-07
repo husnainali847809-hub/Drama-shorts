@@ -1,6 +1,6 @@
 # Adding public-domain or licensed cartoon videos safely
 
-The licensed source option is intentionally opt-in. It does not search YouTube or download random cartoon uploads. The repository's `licensed_assets.json` starts with an empty list; no source is presumed reusable.
+The licensed source option is intentionally opt-in. The repository's `licensed_assets.json` starts with an empty list; no source is presumed reusable. Use the **Internet Cartoon & Story Discovery** workflow to find candidate Commons videos and popular classic-story records. Discovery produces a report only; it does not approve, download or publish any candidate. Read [CONTENT_DISCOVERY.md](CONTENT_DISCOVERY.md) first.
 
 ## Where to discover candidate works
 
