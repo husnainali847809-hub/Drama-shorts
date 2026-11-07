@@ -1,25 +1,48 @@
-# Funny Animals Comedy — Private Automation
+# Original Long-Form Cartoons — Facebook Automation
 
-Independent GitHub Actions project for original family-friendly animal comedy videos and Facebook Reels queued through Buffer.
+Private GitHub Actions project for creating original narrated cartoon stories and queueing them as long-form Facebook Page video posts through Buffer.
 
-This repository is intentionally separate from Unique News. It has its own secrets, Buffer channel ID, Cloudinary folder, workflow names and state file. Never copy credentials or IDs from another project.
+## Current publishing pipeline
 
-## Pipeline
-
-1. OpenRouter's free-model router generates an original English comedy story with two consistent animal characters and six scenes.
-2. Pillow draws original 2D cartoon scenes.
-3. Edge TTS generates narration.
-4. FFmpeg renders a vertical MP4 (1080×1920, 30 fps).
-5. Cloudinary hosts the video in the dedicated `funny-animals-comedy` folder.
-6. The script checks the exact Buffer channel name, Facebook service and connection/lock/queue status.
-7. Buffer receives a Facebook Reel post using Facebook Reel metadata.
-8. A UTC date lock helps prevent duplicate daily queueing.
+1. OpenRouter's free-model router writes an original English story in the selected genre.
+2. Pillow creates original 2D cartoon scene artwork with consistent animal characters, story cues and subtitles.
+3. Edge TTS generates English narration.
+4. FFmpeg assembles a 16:9 landscape MP4 at 1280×720 and 24 fps, with gentle camera movement.
+5. Cloudinary hosts the video in the private project's configured folder.
+6. The script verifies the exact Buffer channel name, Facebook service, connection, lock and queue status.
+7. Buffer receives a Facebook **video post** (not a Reel), so 5–10 minute long-form videos can be scheduled.
+8. The UTC date lock prevents duplicate daily queueing.
 
 A Buffer accepted/queued response is not proof that Facebook has published the post.
 
-## Current creative scope
+## Story genres and duration
 
-The first version uses procedural 2D cartoon drawings, not AI-painted or photorealistic scenes. Narration is generated with Edge TTS. It does not add third-party music, avoiding music licensing problems. Video length is flexible within a 12–180 second validation range.
+Manual workflow options:
+- comedy
+- kids-adventure
+- moral-story
+- fantasy
+- mystery
+- horror (mild suspense only; no gore or graphic violence)
+- adventure
+
+Duration options: 5, 7 or 10 minutes. The daily schedule defaults to a 7-minute comedy story. The manual workflow defaults to 7 minutes and comedy.
+
+Stories are newly generated, with two original animal characters, multiple scenes, narration and subtitles. The pipeline does **not** download other creators' cartoons or remove/replace their branding. Only original content or content with explicit reuse rights should be published.
+
+## Rendering and cost
+
+- Story writing uses OpenRouter's `openrouter/free` model route; free availability/rate limits are not guaranteed.
+- Narration uses Edge TTS.
+- Scene art is generated locally with Pillow.
+- FFmpeg renders locally on the GitHub Actions CPU runner.
+- No paid image/video generation API is called by this pipeline.
+- This is a stylized **2D** cartoon pipeline, not a finished 3D character-animation engine. The separate Blender experiment remains a preview and is not used for long-form rendering.
+- Rendering 5–10 minutes can take a while on a CPU runner. Workflow timeout is 120 minutes.
+
+## Facebook format
+
+The long-form output is 1280×720 (16:9) and uses Facebook post metadata `type: post`, not Reel metadata. Buffer's current Facebook guidance lists video posts up to 4 hours and 1 GB, while Reels are 3–90 seconds. Vertical 9:16 uploads may be treated as Reels, so this pipeline intentionally renders landscape video.
 
 ## GitHub setup
 
@@ -27,7 +50,6 @@ Open **Settings → Secrets and variables → Actions**.
 
 ### Repository secrets
 
-Add:
 - `OPENROUTER_API_KEY`
 - `BUFFER_API_KEY`
 - `CLOUDINARY_CLOUD_NAME`
@@ -36,31 +58,27 @@ Add:
 
 ### Repository variables
 
-Add:
-- `BUFFER_CHANNEL_ID` — the ID of the Animated Jungle Facebook channel in Buffer. Never use the Unique News channel ID.
-- `BUFFER_EXPECTED_CHANNEL_NAME` — exactly `Animated Jungle`; the Buffer channel name or display name must match.
-- 
-Keep the Cloudinary folder as `funny-animals-comedy`.
+- `BUFFER_CHANNEL_ID` — the ID of the intended Facebook Page channel in Buffer.
+- `BUFFER_EXPECTED_CHANNEL_NAME` — exact Buffer channel name/display name used as a safety check and on-video branding.
+- `ENABLE_AUTO_PUBLISH` — set to `true` only after a successful manual test and review.
 
 Never put secret values in code, README files, workflow YAML or screenshots.
 
 ## Safe test sequence
 
-1. Add the secrets and variables above.
-2. Open **Actions → Validate Funny Animals Setup → Run workflow**.
-3. Confirm the run says `Validation passed`. This checks configuration and destination only; it does not generate, upload or queue a video.
-4. To generate and queue one video manually, open **Actions → Funny Animals Daily Publisher → Run workflow**, set `publish` to `true`, and run it.
-5. Inspect the queued post in Buffer before relying on automatic posting.
+1. Confirm the secrets and variables above are already configured.
+2. Open **Actions → Long-Form Cartoon Daily Publisher → Run workflow**.
+3. Set `publish` to `true`, select a genre and duration, then run it.
+4. Inspect the queued Facebook video post in Buffer before enabling the daily schedule.
+5. Automatic daily queueing remains disabled unless `ENABLE_AUTO_PUBLISH=true`.
 
-Automatic daily queueing is disabled by default. Only after checking a successful manual test, add repository variable:
-- `ENABLE_AUTO_PUBLISH` = `true`
-
-The schedule is 13:00 UTC (18:00 Pakistan Standard Time). GitHub scheduled jobs may start later than the exact cron time.
+The daily schedule is 13:00 UTC (18:00 Pakistan Standard Time). GitHub scheduled jobs may start later than the exact cron time.
 
 ## Project files
 
-- `main.py` — story generation, cartoon scenes, narration, video rendering, Cloudinary upload, Buffer queueing and duplicate guard.
-- `.github/workflows/publish.yml` — daily schedule and manual publishing workflow.
+- `main.py` — existing diagnostics, Cloudinary upload, Buffer channel verification and Facebook post queueing.
+- `longform.py` — original story generation, artwork, narration, long-form rendering and upload orchestration.
+- `.github/workflows/publish.yml` — daily schedule and manual genre/duration controls.
 - `.github/workflows/validate.yml` — non-publishing setup validation.
 - `requirements.txt` — Python dependencies.
 - `state/last_queued_date.txt` — daily duplicate guard.
@@ -69,16 +87,7 @@ The schedule is 13:00 UTC (18:00 Pakistan Standard Time). GitHub scheduled jobs 
 ## Safety / privacy
 
 - Keep this repository **Private**.
-- Do not reuse the Unique News Buffer channel ID, secrets, Cloudinary folder, or repository.
-- The workflow's GitHub token can write only to this repository under its workflow permissions.
-- The script stops if the Buffer destination does not match the expected Facebook page.
+- Do not reuse credentials, channel IDs or Cloudinary folders from another project.
+- The workflow checks the exact Facebook destination before queueing.
 - Cloudinary delivery URLs are public; anyone with the URL may be able to view the video.
-- Do not enable automatic publishing until the manual test has been reviewed.
-
-## Troubleshooting
-
-- **SAFETY STOP:** check the configured Buffer channel ID and exact page name.
-- **Missing secret/variable:** add it under repository Settings → Secrets and variables → Actions.
-- **OpenRouter error:** check the API key and free-model rate limits; the built-in story fallback is used for temporary API outages.
-- **Buffer error:** check the page connection and posting permissions.
-- **Queued/scheduled:** Buffer accepted the post; Facebook publication is a separate later status.
+- Do not enable automatic publishing until a manual long-form post has been reviewed.
