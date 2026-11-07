@@ -26,7 +26,7 @@ Manual workflow options:
 - horror (mild suspense only; no gore or graphic violence)
 - adventure
 
-Duration options: 5, 7 or 10 minutes. The daily schedule defaults to a 7-minute comedy story. The manual workflow defaults to 7 minutes and comedy.
+Duration options: 5, 7 or 10 minutes. The daily schedule defaults to a 7-minute story and randomly rotates its genre. The manual workflow defaults to 7 minutes and variety; you can choose a specific genre.
 
 Stories are newly generated, with two original animal characters, multiple scenes, narration and subtitles. The pipeline does **not** download other creators' cartoons or remove/replace their branding. Only original content or content with explicit reuse rights should be published.
 
