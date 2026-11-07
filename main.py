@@ -13,7 +13,7 @@ from sources.movie_finder import search_movies
 from sources.license_checker import attribution_required, license_label
 from ai.scene_selector import find_candidate_scenes
 from editor.video_editor import make_vertical_clip
-from publisher.buffer import verify_channel, queue_facebook_video
+from publisher.buffer import verify_channel, queue_facebook_reel
 from database.history import was_used, mark_used
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -91,7 +91,7 @@ def upload_video(path):
 
 
 def main():
-    log.info("Movie Reels Publisher | one video per run | duration=%s-%ss | Buffer queue | 1080x1920",
+    log.info("Movie Reels Publisher | one Reel per run | duration=%s-%ss | Buffer queue | 1080x1920",
              CLIP_MIN_SECONDS, CLIP_MAX_SECONDS)
     channel = verify_channel()
     log.info("Facebook destination verified through Buffer: %s",
@@ -112,7 +112,7 @@ def main():
             log.info("Verified source quality: %sx%s, bitrate=%s bps", width, height, bitrate)
             scenes = find_candidate_scenes(source, CLIP_MIN_SECONDS, CLIP_MAX_SECONDS)
             if not scenes:
-                log.warning("No usable 120-180 second scene window; skipped.")
+                log.warning("No usable 60-90 second scene window; skipped.")
                 continue
             chosen = scenes[0]
             duration = float(chosen["duration"])
@@ -139,7 +139,7 @@ def main():
             public_url = upload_video(clip_path)
             post = queue_facebook_reel(public_url, caption[:1800])
             mark_used(item["identifier"], str(clip_path), post["id"])
-            log.info("SUCCESS: Buffer accepted Facebook video post into queue. post_id=%s status=%s dueAt=%s. "
+            log.info("SUCCESS: Buffer accepted Facebook Reel into queue. post_id=%s status=%s dueAt=%s. "
                      "Queue acceptance is not proof of publication.",
                      post["id"], post.get("status"), post.get("dueAt"))
             return
