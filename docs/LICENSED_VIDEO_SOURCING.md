@@ -1,6 +1,6 @@
 # Adding public-domain or licensed cartoon videos safely
 
-The licensed source option is intentionally opt-in. It does not search YouTube or download random cartoon uploads. The repository's `licensed_assets.json` starts with an empty list; no source is presumed reusable.
+The licensed source option is intentionally opt-in. The repository's `licensed_assets.json` starts with an empty list; no source is presumed reusable. Use the **Internet Cartoon & Story Discovery** workflow to find candidate Commons videos and popular classic-story records. Discovery produces a report only; it does not approve, download or publish any candidate. Read [CONTENT_DISCOVERY.md](CONTENT_DISCOVERY.md) first.
 
 ## Where to discover candidate works
 
@@ -21,6 +21,8 @@ A site or search filter is not a guarantee that a particular video is safe for c
 6. Keep a record of the source page, license page, date checked, and attribution wording. Do not use a source if you cannot substantiate these points.
 
 The code's boolean rights fields are human attestations, not legal verification. Do not set them to true just to make the workflow pass.
+
+For CC-BY-SA-4.0 sources, the manifest must also contain `share_alike_compliance_confirmed: true`. Set it only after confirming that the Facebook adaptation is actually offered under the same CC BY-SA license. The generated caption explicitly states that the posted adaptation is offered under CC BY-SA 4.0. If you cannot comply with share-alike terms, do not use that source.
 
 ## Manifest format
 

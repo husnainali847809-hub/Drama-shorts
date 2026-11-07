@@ -682,7 +682,7 @@ def queue_reel(video_url,caption,post_type="reel"):
         mode: addToQueue
         assets: [{{ video: {{ url: {json.dumps(video_url)} }} }}]
         metadata: {{ facebook: {{ type: {json.dumps(post_type)} }} }}
-        aiAssisted: true
+        aiAssisted: false
       }}) {{
         ... on PostActionSuccess {{ post {{ id status dueAt channelId }} }}
         ... on MutationError {{ message }}
@@ -699,7 +699,7 @@ def queue_reel(video_url,caption,post_type="reel"):
     return post
 
 def validate():
-    for key in ("OPENROUTER_API_KEY","CLOUDINARY_CLOUD_NAME","CLOUDINARY_API_KEY","CLOUDINARY_API_SECRET"):
+    for key in ("CLOUDINARY_CLOUD_NAME","CLOUDINARY_API_KEY","CLOUDINARY_API_SECRET"):
         need(key)
     verify_channel()
     run(["ffmpeg","-version"]); run(["ffprobe","-version"])
@@ -717,30 +717,14 @@ def main():
                         help="Test Cloudinary video upload only; does not contact Buffer or publish.")
     args=parser.parse_args()
     if args.preview:
-        # Preview the specifically selected Jungle Boss concept deterministically.
-        story=boss_story()
-        log.info("Preview story: %s",story["title"])
-        video=render_video(story)
-        log.info("PREVIEW_ONLY: video saved locally at %s; no Cloudinary upload or Buffer post.",video)
-        return
+        raise RuntimeError("AI-generated cartoon previews are disabled; use the licensed internet-content workflow.")
     if args.video_upload_test:
         video_upload_test(); return
     if args.upload_test:
         upload_test(); return
     if args.validate:
         validate(); return
-    today=datetime.now(timezone.utc).date().isoformat()
-    previous,sha=read_state()
-    if previous==today:
-        log.info("Already queued one video for %s; skipping duplicate.",today); return
-    verify_channel()
-    story=make_story()
-    log.info("Story: %s",story["title"])
-    video=render_video(story)
-    public_url=upload_video(video)
-    post=queue_reel(public_url,story["caption"])
-    write_state(today,sha)
-    log.info("COMPLETE: Buffer accepted post %s. Publication still needs confirmation.",post["id"])
+    raise RuntimeError("Use the licensed long-form publisher entry point; legacy AI cartoon publishing is disabled.")
 
 
 if __name__=="__main__":

@@ -59,6 +59,11 @@ def _load_asset():
         for flag in ("rights_verified", "commercial_use", "modifications_allowed", "worldwide_rights_confirmed"):
             if item[flag] is not True:
                 raise RuntimeError(f"Asset {item['id']} is not approved: {flag} must be explicitly true after human review.")
+        if item["license"] == "CC-BY-SA-4.0" and item.get("share_alike_compliance_confirmed") is not True:
+            raise RuntimeError(
+                f"Asset {item['id']} uses CC-BY-SA-4.0; share_alike_compliance_confirmed must be true "
+                "only after confirming the posted adaptation is offered under the same license."
+            )
         _external_https(item["source_page_url"], "source_page_url")
         _external_https(item["video_url"], "video_url")
         _external_https(item["license_url"], "license_url")
@@ -140,12 +145,19 @@ def build_licensed_video(minutes):
     if final_size > MAX_BYTES:
         raise RuntimeError("Branded licensed video exceeds the 950 MB upload limit.")
     attribution = str(asset["attribution"]).strip()
+    share_alike = ""
+    if asset["license"] == "CC-BY-SA-4.0":
+        share_alike = (
+            "\nAdaptation license: CC BY-SA 4.0 "
+            "(the posted adaptation is offered under the same license)."
+        )
     caption = (
         f"{asset['title']}\n\n"
         f"Original creator: {asset['creator']}\n"
-        f"License: {asset['license']} — {asset['license_url']}\n"
+        f"Source license: {asset['license']} — {asset['license_url']}\n"
         f"Source: {asset['source_page_url']}\n"
-        f"Attribution: {attribution}\n\n"
+        f"Attribution: {attribution}"
+        f"{share_alike}\n\n"
         "#Cartoon #Animation #AnimatedStories"
     )
     log.info("Licensed source prepared: %s (%.1f minutes). Rights metadata was manually supplied; not independently certified by the software.",
