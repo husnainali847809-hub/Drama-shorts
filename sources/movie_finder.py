@@ -1,4 +1,5 @@
 import re
+import unicodedata
 import requests
 from sources.license_checker import license_is_allowed
 
@@ -30,13 +31,16 @@ NON_MOVIE_TERMS = (
     "webcast", "recorded session", "public access"
 )
 
-# A generic word such as "film" or "movie" in a description is not enough.
-# Require an explicit feature/fiction-film classification in actual metadata.
 STRONG_FILM_SIGNALS = (
     "feature film", "feature-length film", "feature length film",
     "full-length film", "full length film", "motion picture",
     "fiction film", "narrative feature", "independent feature film",
     "feature movie", "fictional feature"
+)
+FILM_GENRES = (
+    "action", "adventure", "comedy", "crime", "drama", "fantasy",
+    "horror", "mystery", "romance", "science fiction", "sci-fi",
+    "thriller", "war film", "western", "musical", "biographical film"
 )
 
 MIN_RELEASE_YEAR = 2008
@@ -53,11 +57,16 @@ def _text(value):
     return str(value or "")
 
 
+def _normalize(value):
+    value = unicodedata.normalize("NFKD", _text(value).casefold())
+    return " ".join("".join(ch for ch in value if not unicodedata.combining(ch)).split())
+
+
 def _metadata_text(metadata, fallback_title=""):
     keys = ("title", "description", "subject", "collection", "genre", "type", "language")
     parts = [_text(metadata.get(key, "")) for key in keys]
     parts.append(_text(fallback_title))
-    return " ".join(parts).casefold()
+    return _normalize(" ".join(parts))
 
 
 def looks_animated(metadata, fallback_title=""):
@@ -69,8 +78,7 @@ def looks_like_non_movie(metadata, fallback_title=""):
     searchable = _metadata_text(metadata, fallback_title)
     if any(term in searchable for term in NON_MOVIE_TERMS):
         return True
-    # Common anime/TV episode naming, e.g. S01E09 or Season 1 Episode 9.
-    title = _text(metadata.get("title") or fallback_title).casefold()
+    title = _normalize(metadata.get("title") or fallback_title)
     if re.search(r"\bs\d{1,2}\s*e\d{1,3}\b", title):
         return True
     if re.search(r"\bseason\s*\d+\s*episode\s*\d+\b", title):
@@ -79,16 +87,17 @@ def looks_like_non_movie(metadata, fallback_title=""):
 
 
 def has_film_metadata(metadata, fallback_title=""):
-    # Only trust explicit classification fields, not a generic occurrence of
-    # "film" in a title/description. This blocks meetings, game footage and clips.
+    # Archive's broad "movies" category also contains games and recordings.
+    # Require a real feature-film classification or a recognized movie genre.
     fields = ("genre", "subject", "collection", "type")
-    classified = " ".join(_text(metadata.get(key, "")) for key in fields).casefold()
-    return any(term in classified for term in STRONG_FILM_SIGNALS)
+    classified = _normalize(" ".join(_text(metadata.get(key, "")) for key in fields))
+    if any(term in classified for term in STRONG_FILM_SIGNALS):
+        return True
+    genres = _normalize(metadata.get("genre", ""))
+    return any(re.search(r"\b" + re.escape(genre) + r"\b", genres) for genre in FILM_GENRES)
 
 
 def _release_year(metadata):
-    # Prefer explicit release/publication year fields. Do not use Archive upload
-    # timestamps as a substitute for a film's release year.
     for key in ("release_year", "year", "date", "issued", "year_published"):
         value = metadata.get(key)
         if isinstance(value, (list, tuple)):
@@ -119,7 +128,6 @@ def search_movies(rows=100):
         if not identifier:
             continue
         title = str(doc.get("title") or identifier)
-
         try:
             metadata_response = requests.get(
                 IA_METADATA.format(identifier), headers=HEADERS, timeout=30
@@ -133,39 +141,27 @@ def search_movies(rows=100):
         license_url = metadata.get("licenseurl") or doc.get("licenseurl") or ""
         if not license_is_allowed(license_url):
             continue
-
-        # Strict live-action movie filters: reject animation, games, episodes,
-        # event recordings and other non-cinema material before downloading.
         if looks_animated(metadata, title) or looks_like_non_movie(metadata, title):
             continue
 
         release_year = _release_year(metadata)
         if release_year is None or release_year < MIN_RELEASE_YEAR:
             continue
-
-        # A record must explicitly identify itself as a feature/fiction film.
         if not has_film_metadata(metadata, title):
             continue
 
-        files = record.get("files", [])
         mp4s = []
-        for file_info in files:
+        for file_info in record.get("files", []):
             name = str(file_info.get("name", ""))
             try:
                 size = int(file_info.get("size", 0))
             except (TypeError, ValueError):
                 continue
-            if (
-                name.lower().endswith(".mp4")
-                and size > 0
-                and size <= 800 * 1024 * 1024
-                and not file_info.get("private")
-            ):
+            if name.lower().endswith(".mp4") and 0 < size <= 800 * 1024 * 1024 and not file_info.get("private"):
                 mp4s.append({**file_info, "_size": size})
         if not mp4s:
             continue
 
-        # Prefer the largest MP4; ffprobe still verifies its actual quality.
         chosen = max(mp4s, key=lambda item: item["_size"])
         candidates.append({
             "identifier": identifier,
@@ -176,11 +172,7 @@ def search_movies(rows=100):
             "release_year": release_year,
             "file_name": chosen["name"],
             "file_size": chosen["_size"],
-            "download_url": (
-                f"https://archive.org/download/{identifier}/"
-                f"{requests.utils.quote(chosen['name'])}"
-            ),
+            "download_url": f"https://archive.org/download/{identifier}/{requests.utils.quote(chosen['name'])}",
             "details_url": f"https://archive.org/details/{identifier}",
         })
-
     return candidates
