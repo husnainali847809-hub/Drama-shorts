@@ -11,7 +11,7 @@ DB_PATH = ROOT / "history.sqlite3"
 CLIP_MIN_SECONDS = int(os.getenv("CLIP_MIN_SECONDS", "90"))
 CLIP_MAX_SECONDS = int(os.getenv("CLIP_MAX_SECONDS", "180"))
 MAX_SOURCE_MB = int(os.getenv("MAX_SOURCE_MB", "800"))
-IA_SEARCH_ROWS = int(os.getenv("IA_SEARCH_ROWS", "100"))
+IA_SEARCH_ROWS = int(os.getenv("IA_SEARCH_ROWS", "500"))
 CLOUDINARY_FOLDER = os.getenv("CLOUDINARY_FOLDER", "movie-reels-publisher").strip()
 
 if CLIP_MIN_SECONDS < 90 or CLIP_MAX_SECONDS > 180 or CLIP_MIN_SECONDS > CLIP_MAX_SECONDS:
