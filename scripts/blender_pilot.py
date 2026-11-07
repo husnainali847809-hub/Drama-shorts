@@ -105,7 +105,15 @@ def build(idx,seconds,out):
     bpy.ops.object.light_add(type="AREA",location=(0,-5,8))
     light=bpy.context.object; light.data.energy=1200; light.data.shape="DISK"; light.data.size=8
     s=bpy.context.scene
-    s.render.engine="BLENDER_EEVEE_NEXT" if bpy.app.version >= (4,2,0) else "BLENDER_EEVEE"
+    # Select an engine actually exposed by this Blender build. Ubuntu's
+    # Blender 5.0.1 package exposes BLENDER_EEVEE rather than EEVEE_NEXT.
+    engine_ids={item.identifier for item in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items}
+    if "BLENDER_EEVEE_NEXT" in engine_ids:
+        s.render.engine="BLENDER_EEVEE_NEXT"
+    elif "BLENDER_EEVEE" in engine_ids:
+        s.render.engine="BLENDER_EEVEE"
+    else:
+        s.render.engine="CYCLES"
     s.render.resolution_x=720; s.render.resolution_y=1280; s.render.resolution_percentage=100
     s.render.fps=24; s.frame_start=1; s.frame_end=seconds*24
     # Render numbered PNG frames. Encoding is handled by system FFmpeg in
