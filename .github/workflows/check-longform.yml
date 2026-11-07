@@ -10,6 +10,7 @@ on:
       - 'longform.py'
       - 'licensed_source.py'
       - 'discover_content.py'
+      - 'external_video_discovery.py'
       - 'licensed_assets.json'
       - 'requirements.txt'
       - '.github/workflows/check-longform.yml'
@@ -35,11 +36,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Compile Python modules
-        run: python -m py_compile main.py longform.py licensed_source.py discover_content.py
+        run: python -m py_compile main.py longform.py licensed_source.py discover_content.py external_video_discovery.py
       - name: Test discovery selectors and license normalization
         run: |
           python - <<'PY'
           import discover_content as d
+          import external_video_discovery as ext
+          assert ext._license('https://creativecommons.org/licenses/by/4.0/') == 'CC-BY-4.0'
+          assert ext._license('All rights reserved') is None
+          assert ext.discover_youtube_creative_commons(3)['status'] == 'not_configured' if not __import__('os').getenv('YOUTUBE_API_KEY') else True
           assert d.clean('  two   words ') == 'two words'
           assert d.normalize_video_license('CC BY-SA 4.0') == 'CC-BY-SA-4.0'
           assert d.normalize_video_license('All rights reserved') is None
