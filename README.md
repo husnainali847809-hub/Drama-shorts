@@ -18,6 +18,7 @@ A Buffer accepted/queued response is not proof that Facebook has published the p
 ## Story genres and duration
 
 Manual workflow options:
+- variety (randomly selects a genre)
 - comedy
 - kids-adventure
 - moral-story
