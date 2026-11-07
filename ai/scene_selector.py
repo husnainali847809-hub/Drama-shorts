@@ -17,8 +17,6 @@ def _probe_duration(video_path):
 
 
 def _make_detection_proxy(video_path, proxy_path):
-    # A tiny 0.5-fps proxy makes scene detection much faster than decoding
-    # the full-resolution source frame-by-frame. Timestamps remain in seconds.
     subprocess.run(
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -30,10 +28,10 @@ def _make_detection_proxy(video_path, proxy_path):
     )
 
 
-def find_candidate_scenes(video_path, min_seconds=60, max_seconds=90):
-    """Choose a 60–90 second window using a low-resolution scene proxy."""
-    if min_seconds < 60 or max_seconds > 90 or min_seconds > max_seconds:
-        raise ValueError("Facebook Reel length must be between 60 and 90 seconds.")
+def find_candidate_scenes(video_path, min_seconds=90, max_seconds=180):
+    """Choose a 90–180 second window using a low-resolution scene proxy."""
+    if min_seconds < 90 or max_seconds > 180 or min_seconds > max_seconds:
+        raise ValueError("Movie clip length must be between 90 and 180 seconds.")
 
     video_path = Path(video_path)
     total = _probe_duration(video_path)
@@ -57,22 +55,21 @@ def find_candidate_scenes(video_path, min_seconds=60, max_seconds=90):
         if 0 <= value <= total - min_seconds:
             starts.add(value)
 
-    durations = sorted({min_seconds, max_seconds, (min_seconds + max_seconds) // 2})
+    target = 135.0
+    durations = sorted({float(min_seconds), float(max_seconds), target})
     candidates = []
     for start in starts:
         for duration in durations:
             if duration > total or start + duration > total:
                 continue
             cut_count = sum(1 for cut in boundaries if start < cut < start + duration)
-            length_score = 1.0 - abs(duration - 75.0) / 30.0
+            length_score = 1.0 - abs(duration - target) / 45.0
             score = (cut_count * 0.15) + length_score
             candidates.append({
                 "start": round(start, 2),
                 "duration": float(duration),
                 "score": score,
                 "detected_cuts": cut_count,
-                # A conservative editing-pace heuristic, not true visual AI.
-                # Only fast-cut sequences receive the action soundtrack.
                 "is_fighting": cut_count >= 12,
             })
 
