@@ -111,6 +111,21 @@ def looks_like_non_film_asset(metadata, fallback_title=""):
     )
 
 
+COMMONS_PROMO_TERMS = (
+    "wikimedia", "anniversary", "organization", "association", "foundation",
+    "corporate", "institutional", "conference", "campaign", "promotional video",
+    "project presentation", "company profile", "institution profile",
+)
+
+
+def looks_like_commons_promo(metadata, fallback_title=""):
+    searchable = _metadata_text(metadata, fallback_title)
+    title = _normalize(metadata.get("title") or fallback_title)
+    return any(term in searchable for term in COMMONS_PROMO_TERMS) or any(
+        term in title for term in ("20 years of work", "work and existence")
+    )
+
+
 def has_film_metadata(metadata, fallback_title=""):
     fields = ("genre", "subject", "collection", "type", "description", "director", "cast", "runtime", "imdb", "imdb_id", "mediatype")
     classified = _normalize(" ".join(_text(metadata.get(key, "")) for key in fields))
@@ -291,7 +306,7 @@ def _search_commons_movies(limit=100):
             if looks_animated(metadata, searchable_title) or looks_like_non_movie(metadata, searchable_title):
                 rejected["animation_or_non_movie"] += 1
                 continue
-            if looks_like_non_film_asset(metadata, searchable_title):
+            if looks_like_non_film_asset(metadata, searchable_title) or looks_like_commons_promo(metadata, searchable_title):
                 rejected["animation_or_non_movie"] += 1
                 continue
 
