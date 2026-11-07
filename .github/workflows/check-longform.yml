@@ -50,6 +50,13 @@ jobs:
           assert d.animation_relevance('Joy & Heron Animated CGI Spot', '')[0] is True
           assert d.animation_relevance('Charge Blender Open Movie', '')[0] is True
           assert d.animation_relevance('Prison restoration documentary', '')[0] is False
+          # Classic animation may be identified by Commons categories or known short titles.
+          assert d.animation_relevance('Alice\'s Balloon Race (1926)', '')[0] is True
+          assert d.animation_relevance('Betty Boop - A Language All My Own (1935)', '')[0] is True
+          assert d.animation_relevance('The Bandmaster (1931)', '', ['Category:Animated films'])[0] is True
+          # Game announcements/trailers are not reusable cartoon episodes.
+          assert d.animation_relevance('Doraemon Story of Seasons PS4 Announcement', '')[0] is False
+          assert d.animation_relevance('Oggy and the Cockroaches - THE MOVIE', '')[0] is True
           assert d.story_title_matches('Alice in Wonderland short animation', '', "Alice's Adventures in Wonderland") is False
           assert d.story_title_matches("Alice's Adventures in Wonderland animated film", '', "Alice's Adventures in Wonderland") is True
           # Open Library fallback records remain explicitly un-cleared for copyright.
