@@ -1,12 +1,15 @@
 import re
+import html
 import unicodedata
 import logging
 import requests
+from config import COMMONS_SEARCH_LIMIT
 from sources.license_checker import license_is_allowed
 
 log = logging.getLogger("movie-reels-publisher")
 IA_SEARCH = "https://archive.org/advancedsearch.php"
 IA_METADATA = "https://archive.org/metadata/{}"
+COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 HEADERS = {"User-Agent": "MovieReelsPublisher/1.1 (rights-filtered live-action film source tool)"}
 
 ANIMATION_TERMS = (
@@ -51,7 +54,7 @@ STRONG_FILM_SIGNALS = (
     "feature film", "feature-length film", "feature length film",
     "full-length film", "full length film", "motion picture",
     "fiction film", "narrative feature", "independent feature film",
-    "feature movie", "fictional feature"
+    "feature movie", "fictional feature", "short film", "narrative film"
 )
 FILM_GENRES = (
     "action", "adventure", "comedy", "crime", "drama", "fantasy",
@@ -147,6 +150,177 @@ def _search_docs(query, rows, page=1):
     response = requests.get(IA_SEARCH, params=params, headers=HEADERS, timeout=40)
     response.raise_for_status()
     return response.json().get("response", {}).get("docs", [])
+
+
+def _plain_html(value):
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", _text(value)))).strip()
+
+
+def _search_commons_movies(limit=100):
+    """Find Commons-hosted live-action film files with machine-readable reuse terms."""
+    limit = max(20, min(int(limit), 150))
+    queries = (
+        "short film filetype:video",
+        "feature film filetype:video",
+        "fiction film filetype:video",
+    )
+    found_titles = []
+    seen_titles = set()
+
+    for query in queries:
+        params = {
+            "action": "query",
+            "list": "search",
+            "srnamespace": 6,
+            "srsearch": query,
+            "srlimit": 50,
+            "srprop": "size|timestamp",
+            "format": "json",
+        }
+        response = requests.get(COMMONS_API, params=params, headers=HEADERS, timeout=40)
+        response.raise_for_status()
+        for result in response.json().get("query", {}).get("search", []):
+            title = result.get("title", "")
+            if title and title not in seen_titles:
+                seen_titles.add(title)
+                found_titles.append(title)
+            if len(found_titles) >= limit:
+                break
+        if len(found_titles) >= limit:
+            break
+
+    candidates = []
+    rejected = {
+        "metadata_unavailable": 0, "license": 0, "not_video_mp4_family": 0,
+        "animation_or_non_movie": 0, "year_missing_or_old": 0,
+        "film_metadata": 0, "below_full_hd": 0, "file_too_large": 0,
+    }
+
+    # Batch imageinfo requests to reduce API load; Commons supports multiple titles.
+    for offset in range(0, len(found_titles), 50):
+        batch = found_titles[offset:offset + 50]
+        params = {
+            "action": "query",
+            "prop": "imageinfo|categories",
+            "titles": "|".join(batch),
+            "iiprop": "url|size|mime|mediatype|extmetadata",
+            "iiextmetadatalanguage": "en",
+            "iiextmetadatafilter": "LicenseUrl|LicenseShortName|Artist|Credit|DateTimeOriginal|ImageDescription|ObjectName|UsageTerms",
+            "cllimit": "max",
+            "clshow": "!hidden",
+            "format": "json",
+        }
+        try:
+            response = requests.get(COMMONS_API, params=params, headers=HEADERS, timeout=50)
+            response.raise_for_status()
+            pages = response.json().get("query", {}).get("pages", {})
+        except (requests.RequestException, ValueError):
+            rejected["metadata_unavailable"] += len(batch)
+            log.exception("Wikimedia Commons metadata batch failed.")
+            continue
+
+        for page in pages.values():
+            title = str(page.get("title") or "")
+            imageinfo = (page.get("imageinfo") or [{}])[0]
+            if not imageinfo:
+                rejected["metadata_unavailable"] += 1
+                continue
+
+            mime = str(imageinfo.get("mime") or "").lower()
+            extension = title.rsplit(".", 1)[-1].lower() if "." in title else ""
+            if not mime.startswith("video/") or extension not in {"mp4", "m4v", "webm", "ogv", "ogg", "mov"}:
+                rejected["not_video_mp4_family"] += 1
+                continue
+
+            try:
+                size = int(imageinfo.get("size") or 0)
+                width = int(imageinfo.get("width") or 0)
+                height = int(imageinfo.get("height") or 0)
+            except (TypeError, ValueError):
+                rejected["metadata_unavailable"] += 1
+                continue
+            if size <= 0 or size > 800 * 1024 * 1024:
+                rejected["file_too_large"] += 1
+                continue
+            full_hd = (
+                (width >= 1920 and height >= 1080)
+                or (width >= 1080 and height >= 1920)
+            )
+            if not full_hd:
+                rejected["below_full_hd"] += 1
+                continue
+
+            ext = imageinfo.get("extmetadata") or {}
+            def ext_value(key):
+                value = (ext.get(key) or {}).get("value", "")
+                return _plain_html(value)
+
+            license_url = ext_value("LicenseUrl")
+            if not license_is_allowed(license_url):
+                rejected["license"] += 1
+                continue
+
+            description = ext_value("ImageDescription")
+            object_name = ext_value("ObjectName")
+            artist = ext_value("Artist") or ext_value("Credit") or "Unknown"
+            date_value = ext_value("DateTimeOriginal") or imageinfo.get("timestamp") or ""
+            categories = [
+                str(category.get("title", "")).replace("Category:", "")
+                for category in page.get("categories", [])
+            ]
+            metadata = {
+                "title": object_name or title,
+                "description": description,
+                "genre": " ".join(categories),
+                "subject": " ".join(categories),
+                "type": "video",
+                "date": date_value,
+                "creator": artist,
+            }
+            searchable_title = object_name or title
+            if looks_animated(metadata, searchable_title) or looks_like_non_movie(metadata, searchable_title):
+                rejected["animation_or_non_movie"] += 1
+                continue
+            if looks_like_non_film_asset(metadata, searchable_title):
+                rejected["animation_or_non_movie"] += 1
+                continue
+
+            release_year = _release_year(metadata, date_value)
+            if release_year is None or release_year < MIN_RELEASE_YEAR:
+                rejected["year_missing_or_old"] += 1
+                continue
+            if not has_film_metadata(metadata, searchable_title):
+                rejected["film_metadata"] += 1
+                continue
+
+            page_id = str(page.get("pageid") or re.sub(r"[^a-zA-Z0-9_-]+", "_", title))
+            file_url = str(imageinfo.get("url") or "")
+            if not file_url.startswith("https://upload.wikimedia.org/"):
+                rejected["metadata_unavailable"] += 1
+                continue
+            details_url = "https://commons.wikimedia.org/wiki/" + requests.utils.quote(title.replace(" ", "_"), safe=":_()")
+            candidates.append({
+                "identifier": f"commons-{page_id}",
+                "provider": "Wikimedia Commons",
+                "title": object_name or title.removeprefix("File:"),
+                "creator": artist,
+                "license_url": license_url,
+                "date": str(date_value),
+                "release_year": release_year,
+                "file_name": title.rsplit("/", 1)[-1],
+                "file_size": size,
+                "source_width": width,
+                "source_height": height,
+                "download_url": file_url,
+                "details_url": details_url,
+            })
+
+    log.info(
+        "Wikimedia Commons discovery inspected %d file titles; rejection counts: %s",
+        len(found_titles), rejected
+    )
+    log.info("Eligible licensed live-action Commons film candidates: %d", len(candidates))
+    return candidates
 
 
 def search_movies(rows=250, pages=2):
@@ -297,6 +471,14 @@ def search_movies(rows=250, pages=2):
             "details_url": f"https://archive.org/details/{identifier}",
         })
 
-    log.info("Movie source rejection counts: %s", rejected)
-    log.info("Eligible licensed live-action movie candidates: %d", len(candidates))
+    log.info("Internet Archive rejection counts: %s", rejected)
+    log.info("Eligible licensed live-action Internet Archive candidates: %d", len(candidates))
+
+    try:
+        commons_candidates = _search_commons_movies(limit=COMMONS_SEARCH_LIMIT)
+        candidates.extend(commons_candidates)
+    except (requests.RequestException, ValueError) as exc:
+        log.warning("Wikimedia Commons discovery unavailable; continuing with Internet Archive results: %s", exc)
+
+    log.info("Total eligible candidates across enabled sources: %d", len(candidates))
     return candidates
