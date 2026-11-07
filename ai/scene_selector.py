@@ -30,10 +30,10 @@ def _make_detection_proxy(video_path, proxy_path):
     )
 
 
-def find_candidate_scenes(video_path, min_seconds=120, max_seconds=180):
-    """Choose a 120–180 second window using a low-resolution scene proxy."""
-    if min_seconds < 120 or max_seconds > 180 or min_seconds > max_seconds:
-        raise ValueError("Requested clip length must be between 120 and 180 seconds.")
+def find_candidate_scenes(video_path, min_seconds=60, max_seconds=90):
+    """Choose a 60–90 second window using a low-resolution scene proxy."""
+    if min_seconds < 60 or max_seconds > 90 or min_seconds > max_seconds:
+        raise ValueError("Facebook Reel length must be between 60 and 90 seconds.")
 
     video_path = Path(video_path)
     total = _probe_duration(video_path)
@@ -64,7 +64,7 @@ def find_candidate_scenes(video_path, min_seconds=120, max_seconds=180):
             if duration > total or start + duration > total:
                 continue
             cut_count = sum(1 for cut in boundaries if start < cut < start + duration)
-            length_score = 1.0 - abs(duration - 150.0) / 60.0
+            length_score = 1.0 - abs(duration - 75.0) / 30.0
             score = (cut_count * 0.15) + length_score
             candidates.append({
                 "start": round(start, 2),
@@ -73,7 +73,7 @@ def find_candidate_scenes(video_path, min_seconds=120, max_seconds=180):
                 "detected_cuts": cut_count,
                 # A conservative editing-pace heuristic, not true visual AI.
                 # Only fast-cut sequences receive the action soundtrack.
-                "is_fighting": cut_count >= 18,
+                "is_fighting": cut_count >= 12,
             })
 
     if not candidates:
