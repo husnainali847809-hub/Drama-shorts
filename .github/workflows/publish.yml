@@ -69,6 +69,7 @@ jobs:
           MAX_SOURCE_MB: "800"
           IA_SEARCH_ROWS: "500"
           IA_SEARCH_PAGES: "2"
+          COMMONS_SEARCH_LIMIT: "100"
         run: python main.py
       - name: Save generated video for review
         if: always()
