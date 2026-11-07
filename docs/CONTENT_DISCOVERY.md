@@ -1,5 +1,11 @@
 # Internet content discovery
 
+## Select a famous cartoon or story
+
+When manually running the discovery workflow, choose a cartoon name such as Motu Patlu, Chhota Bheem, Tom and Jerry, Doraemon, Shinchan or Oggy, and/or choose a classic story title such as Cinderella, Alice's Adventures in Wonderland, Pinocchio, Peter Pan or The Jungle Book. The workflow searches Commons for openly licensed candidate videos matching the selected cartoon name and searches Project Gutenberg for the selected story title. "All" searches the built-in list.
+
+A search match is not an official episode and does not prove that character rights are cleared. Famous franchise names are reference/search terms only. Official episodes remain blocked from download/publishing unless the exact rightsholder grants permission or a suitable license.
+
 ## Cartoon videos
 
 The discovery job searches Wikimedia Commons for existing video files and accepts only metadata labels that map to CC0 1.0, CC BY 4.0, CC BY-SA 4.0 or Public Domain Mark 1.0. It records the Commons file page, direct video URL, creator metadata and license metadata.
@@ -10,7 +16,7 @@ A license that permits commercial use and adaptations can still require attribut
 
 ## Popular story sources
 
-The report queries Project Gutenberg's public catalog for fairy tales, fables, folk tales, classic adventures and myths/legends. It ranks returned records by catalog download count as a rough popularity signal. Download count is not proof of current virality.
+The report queries Project Gutenberg's public catalog for famous classic titles (including Cinderella, Alice's Adventures in Wonderland, Pinocchio, Peter Pan, The Jungle Book and others), as well as fairy tales, fables, folk tales, classic adventures and myths/legends. It ranks returned records by catalog download count as a rough popularity signal. Download count is not proof of current virality or social-media trend status.
 
 Project Gutenberg's public-domain distribution is based on United States copyright status. A catalog entry is not automatically clear for worldwide commercial adaptation. Check the original author, translation, edition, illustrations and applicable law for the countries where the Facebook Page will be viewed. Do not copy modern adaptations or translations unless they are separately licensed.
 
