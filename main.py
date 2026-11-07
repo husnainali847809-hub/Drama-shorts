@@ -139,7 +139,7 @@ def main():
             public_url = upload_video(clip_path)
             post = queue_facebook_reel(public_url, caption[:1800])
             mark_used(item["identifier"], str(clip_path), post["id"])
-            log.info("SUCCESS: Buffer accepted Facebook Reel into queue. post_id=%s status=%s dueAt=%s. "
+            log.info("SUCCESS: Buffer accepted Facebook video post into queue. post_id=%s status=%s dueAt=%s. "
                      "Queue acceptance is not proof of publication.",
                      post["id"], post.get("status"), post.get("dueAt"))
             return
