@@ -115,23 +115,43 @@ def normalized_words(value):
     return re.sub(r"[^a-z0-9]+", " ", clean(value, 4000).casefold()).strip()
 
 
-def animation_relevance(title, description):
-    """Return a conservative metadata-only animation relevance decision."""
-    text = f"{title} {description}".casefold()
+def animation_relevance(title, description, categories=None):
+    """Return a metadata-only animation decision using descriptions and Commons categories."""
+    title_text = clean(title, 500).casefold()
+    text = f"{title_text} {clean(description, 4000).casefold()}"
+    category_text = " ".join(clean(item, 300).casefold() for item in (categories or []))
     positive = (
         "animation", "animated", "cartoon", "anime", "animacion", "animación",
         "2d", "3d", "cgi", "blender open movie", "stop motion",
         "motion graphics", "puppet animation",
     )
+    category_positive = (
+        "animated films", "animated short films", "cartoon films",
+        "animation films", "animation videos", "animated television",
+        "animated feature films", "animated short",
+    )
+    # Well-known historic short-film titles/series names can be useful signals
+    # even when Commons descriptions omit the word "animation".
+    title_positive = (
+        "betty boop", "alice's balloon race", "dumb patrol",
+        "freddy the freshman", "lady play your mandolin",
+        "mutt and jeff", "sinkin in the bathtub",
+        "oggy and the cockroaches",
+    )
     negative = (
         "documentary", "prison", "restoration", "restaur", "interview",
-        "talking in", "language", "hot spring", "travel vlog",
+        "talking in", "hot spring", "travel vlog", "video game",
+        "gameplay", "ps4 announcement", "movie trailer",
     )
     hits = [word for word in positive if word in text]
+    category_hits = [word for word in category_positive if word in category_text]
+    title_hits = [word for word in title_positive if word in title_text]
     blocks = [word for word in negative if word in text]
+    evidence = hits + [f"Commons category: {word}" for word in category_hits]
+    evidence += [f"recognized animation title: {word}" for word in title_hits]
     if blocks:
-        return False, hits, blocks
-    return bool(hits), hits, blocks
+        return False, evidence, blocks
+    return bool(evidence), evidence, blocks
 
 
 def story_title_matches(title, description, story_title):
@@ -159,8 +179,9 @@ def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story
             "gsrsearch": f"filetype:video {term}",
             "gsrnamespace": 6,
             "gsrlimit": min(max(limit * 2, 10), 50),
-            "prop": "imageinfo",
+            "prop": "imageinfo|categories",
             "iiprop": "url|mime|extmetadata",
+            "cllimit": 30,
         })
         pages = data.get("query", {}).get("pages", {})
         for page in pages.values():
@@ -186,7 +207,8 @@ def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story
             if require_story_match and not story_title_matches(title, description, term):
                 continue
 
-            is_animation, positive_hits, negative_hits = animation_relevance(title, description)
+            categories = [item.get("title", "") for item in page.get("categories", [])]
+            is_animation, positive_hits, negative_hits = animation_relevance(title, description, categories)
             if not is_animation:
                 excluded.append({
                     "title": title,
@@ -211,11 +233,20 @@ def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story
             ))
             license_conflict = normalized == "CC-BY-4.0" and description_has_sharealike
             permission_claim = "written copyright permission" in description.casefold()
+            franchise_reference = next(
+                (name for name in REFERENCE_ONLY_FRANCHISES
+                 if name.casefold() in f"{title} {description}".casefold()),
+                None,
+            )
             review_flags = []
             if license_conflict:
                 review_flags.append("Description mentions CC BY-SA 4.0 while Commons label says CC BY 4.0")
             if permission_claim:
                 review_flags.append("Description mentions written copyright permission; verify the permission chain and scope")
+            if franchise_reference:
+                review_flags.append(
+                    f"Contains reference-only franchise name ({franchise_reference}); Commons license metadata alone does not prove rights to the franchise characters or episode"
+                )
             page_id = page.get("pageid")
             page_url = f"https://commons.wikimedia.org/wiki/{quote(str(page.get('title', '')).replace(' ', '_'))}"
             found[str(page_id or title)] = {
@@ -231,6 +262,8 @@ def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story
                 "description": description,
                 "animation_relevance": "likely_animation_based_on_metadata",
                 "animation_evidence": positive_hits,
+                "commons_categories": categories,
+                "reference_only_franchise_match": franchise_reference,
                 "license_metadata_conflict": license_conflict,
                 "permission_claim_in_description": permission_claim,
                 "rights_review_flags": review_flags,
