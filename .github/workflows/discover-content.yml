@@ -65,6 +65,7 @@ jobs:
           DISCOVERY_LIMIT: ${{ inputs.limit || 15 }}
           DISCOVERY_FRANCHISE: ${{ inputs.franchise || 'all' }}
           DISCOVERY_STORY: ${{ inputs.story || 'all' }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           python discover_content.py --limit "$DISCOVERY_LIMIT" \
             --franchise "$DISCOVERY_FRANCHISE" --story "$DISCOVERY_STORY"
