@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import re
+import random
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -283,7 +284,10 @@ def render_long_video(story, genre, minutes):
 
 
 def run():
-    genre = os.getenv("CARTOON_GENRE", "comedy").strip().lower()
+    genre = os.getenv("CARTOON_GENRE", "variety").strip().lower()
+    if genre == "variety":
+        genre = random.choice(list(GENRES))
+        log.info("Variety mode selected genre: %s", genre)
     if genre not in GENRES:
         raise RuntimeError(f"Unsupported CARTOON_GENRE '{genre}'. Allowed: {', '.join(GENRES)}")
     try:
