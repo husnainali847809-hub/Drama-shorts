@@ -1,31 +1,53 @@
-# Movie Reels — Facebook Buffer Publisher
+# Free Animal Stories — Facebook Reels
 
-This repository now runs Movie Reels Publisher instead of the former animal/cartoon automation.
+This branch replaces paid fal.ai generation with a free, local procedural 3D animation workflow. Blender creates original stylized animal characters and jungle scenes; Edge TTS creates Pakistani Urdu + English narration; FFmpeg assembles the final video.
 
-## Daily schedule
-GitHub Actions starts five times daily at 08:00, 11:00, 14:00, 17:00 and 20:00 Pakistan Standard Time (UTC+5). Each run processes at most one video and adds it to the same Facebook channel already connected through this repository's Buffer channel ID. Buffer publishes according to the posting slots configured in that channel, so configure 4–5 daily queue slots there as well. These are five attempts, not a guarantee of five posts.
+## Pilot format
+- Original story: Timo & Bunny: A Little Bridge of Friendship
+- Seven scenes, approximately 10 seconds each (about 70 seconds).
+- Vertical 9:16, 720×1280 at 24 fps, configured for an 8 GB RAM computer.
+- Original tiger cub and rabbit models built from Blender meshes.
+- Urdu + English narration.
+- Review-only output. Nothing is automatically published.
 
-## Video format
-- Live-action feature-film candidates only; animation, anime, cartoons, gaming footage, TV episodes, events and meeting recordings are filtered out.
-- Scene length: 85–89 seconds (configured for the current Facebook Reel workflow).
-- Release year must be known; films from 1890 onward are eligible by default (configurable with `MIN_RELEASE_YEAR`). Older films are not rejected just for age.
-- Native Full HD source (at least 1920×1080 landscape or 1080×1920 portrait) and at least 2 Mbps source bitrate are mandatory for every film, regardless of age. Low-resolution sources are rejected, not falsely labelled Full HD after upscaling.
-- Vertical 1080×1920 (9:16). The complete movie frame is fitted over a blurred vertical background to avoid excessive zoom/cropping.
-- Original movie audio/dialogue is retained.
-- Fast-cut action-like scenes receive an original synthesized fight instrumental underneath. Other scenes retain original audio only. Scene detection is a cut-rate heuristic, not semantic AI.
+## Free tools
+- Blender: https://www.blender.org/download/
+- Python 3.10+ (3.11 recommended): https://www.python.org/downloads/
+- FFmpeg: https://ffmpeg.org/download.html
+- Edge TTS: free-to-use command-line library; internet is required and Microsoft service availability/terms may change.
 
-## Existing connections
-The existing GitHub Actions secrets and variables are preserved:
-- Secrets: `BUFFER_API_KEY`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
-- Variables: `BUFFER_CHANNEL_ID`, optional `BUFFER_EXPECTED_CHANNEL_NAME`
-- Set repository variable `ENABLE_AUTO_PUBLISH=true` to enable the five scheduled attempts.
+No fal.ai account, API key, paid image/video model, or paid generation credits are required. Rendering uses your PC resources and electricity. This produces stylized low-poly 3D animation, not photorealistic AI video.
 
-The publisher searches Internet Archive and Wikimedia Commons; it does not assume that a file is reusable merely because it is hosted on Commons. Its explicit machine-readable license URL must pass the configured commercial-reuse allowlist. The publisher does not change the configured Buffer channel ID: it verifies and queues to that same connected Facebook destination. Each output uploads to Cloudinary and is added to that channel's Buffer queue. Queue acceptance is not proof that Facebook later published it.
+## Windows setup
+1. Install Blender.
+2. Install Python 3.11 and enable Add Python to PATH.
+3. Install FFmpeg and add its bin folder to PATH.
+4. Download this repository and open Command Prompt in its folder.
+5. Run:
+   ```powershell
+   py -m venv .venv
+   .venv\Scripts\activate
+   python -m pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+6. Generate:
+   ```powershell
+   python main.py --generate --pilot
+   ```
+If Blender is not on PATH, set BLENDER_EXE to its full blender.exe path, for example:
+   ```powershell
+   $env:BLENDER_EXE="C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"
+   ```
 
-## Source rights and availability
-The finder searches Internet Archive records and Wikimedia Commons video files. It accepts only machine-readable Public Domain Mark 1.0, CC0 1.0 or CC BY 4.0 declarations, and Commons candidates must be live-action film-like video files with a recorded year and native Full HD dimensions. The stricter metadata filter may return fewer candidates, and metadata alone cannot prove that every video, soundtrack, performer and commercial-use right is cleared. Confirm rights before public posting. Do not use unofficial commercial movie or TV-drama copies without permission. Short duration, edits, credits or music overlays do not make copyrighted footage free to reuse.
+## Output and manual approval
+Output: output/animal_pilot/PILOT_Timo_and_Bunny_REVIEW_ONLY.mp4. Watch the complete MP4 before publishing. Generation never calls Buffer.
 
-Wikimedia Commons is primarily a free-media repository, not a dependable catalogue of complete feature films. The openly licensed Archive catalogue is not a dependable source of current blockbuster films or Pakistani television dramas. Some runs may find no eligible source and queue nothing; the system skips unsuitable material rather than selecting cartoons, gameplay or event recordings to fill the schedule.
+Only after watching and approving the video, publishing can be explicitly invoked using existing Buffer/Cloudinary configuration:
+   ```powershell
+   $env:PUBLISH_APPROVED="true"
+   python main.py --publish-approved output/animal_pilot/PILOT_Timo_and_Bunny_REVIEW_ONLY.mp4 --caption "A little kindness creates a big friendship!"
+   ```
+This queues the approved video; it does not guarantee Facebook has published it.
 
-## Run
-Python 3.11+, FFmpeg and FFprobe. Install dependencies with `pip install -r requirements.txt`. In Actions, run **Movie Reels - Facebook Buffer Publisher** with `publish=true` for a one-time manual attempt.
+## Limitations
+This free version creates stylized procedural 3D characters from Blender primitives. It is lightweight and dependable, but simpler than studio animation. Rendering may take a long time on 8 GB RAM. Keep other heavy apps closed. Edge TTS requires internet. No copyrighted cartoon, film, or TV footage is used.
