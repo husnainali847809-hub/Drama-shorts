@@ -39,9 +39,30 @@ CARTOON_SEARCHES = (
     "traditional animation film",
     "animated fairy tale",
 )
+# These are discovery/search names only. They are not licensed assets and must
+# never be downloaded or published unless the exact work is independently cleared.
 REFERENCE_ONLY_FRANCHISES = (
     "Motu Patlu",
     "Chhota Bheem",
+    "Tom and Jerry",
+    "Doraemon",
+    "Shinchan",
+    "Oggy and the Cockroaches",
+    "The Jungle Book (cartoon adaptations)",
+)
+CLASSIC_STORY_SEARCHES = (
+    "Cinderella",
+    "Alice's Adventures in Wonderland",
+    "The Adventures of Pinocchio",
+    "The Wonderful Wizard of Oz",
+    "Peter Pan",
+    "The Jungle Book",
+    "Snow White",
+    "Hansel and Gretel",
+    "The Three Little Pigs",
+    "Robin Hood",
+    "The Little Mermaid",
+    "Arabian Nights",
 )
 
 
@@ -143,6 +164,7 @@ def discover_story_sources(limit=20, searches=None):
             found[str(book_id)] = {
                 "gutenberg_id": book_id,
                 "title": clean(book.get("title"), 180),
+                "matched_search": term,
                 "authors": [clean(a.get("name"), 120) for a in book.get("authors", [])],
                 "subjects": [clean(s, 100) for s in book.get("subjects", [])[:8]],
                 "download_count": int(book.get("download_count") or 0),
@@ -158,9 +180,17 @@ def discover_story_sources(limit=20, searches=None):
     return books[:limit]
 
 
-def build_report(limit=15):
+def build_report(limit=15, franchise="all", story="all"):
+    if franchise != "all" and franchise not in REFERENCE_ONLY_FRANCHISES:
+        raise ValueError(f"Unknown cartoon franchise search: {franchise}")
+    if story != "all" and story not in CLASSIC_STORY_SEARCHES:
+        raise ValueError(f"Unknown classic story search: {story}")
+    franchise_queries = list(REFERENCE_ONLY_FRANCHISES) if franchise == "all" else [franchise]
+    story_queries = list(CLASSIC_STORY_SEARCHES) if story == "all" else [story]
     report = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "selected_franchise": franchise,
+        "selected_story": story,
         "notice": (
             "Discovery results are candidates, not legal clearance. Nothing is downloaded, "
             "added to the approved manifest, or published automatically."
@@ -180,7 +210,7 @@ def build_report(limit=15):
     }
     stories = []
     try:
-        stories = discover_story_sources(limit)
+        stories = discover_story_sources(limit, searches=story_queries + list(STORY_SEARCHES))
         report["popular_story_source_candidates"] = stories
         logging.info("Project Gutenberg story sources: %s candidate(s)", len(stories))
     except Exception as exc:
@@ -188,8 +218,22 @@ def build_report(limit=15):
         report["source_errors"].append({"source": "Project Gutenberg story sources", "error": str(exc)[:500]})
 
     try:
-        report["cartoon_video_candidates"] = discover_cartoon_videos(limit)
+        report["cartoon_video_candidates"] = discover_cartoon_videos(
+            limit, queries=list(CARTOON_SEARCHES) + franchise_queries
+        )
         logging.info("Wikimedia Commons cartoon videos: %s candidate(s)", len(report["cartoon_video_candidates"]))
+        report["franchise_searches"] = [
+            {
+                "name": name,
+                "search_status": "searched_in_commons_for_reuse-friendly_video_metadata",
+                "candidate_count": sum(
+                    1 for item in report["cartoon_video_candidates"]
+                    if item.get("search_term", "").lower() == name.lower()
+                ),
+                "notice": "This does not locate or authorize official copyrighted episodes."
+            }
+            for name in franchise_queries
+        ]
     except Exception as exc:
         logging.exception("Wikimedia Commons cartoon discovery failed")
         report["source_errors"].append({"source": "Wikimedia Commons cartoon videos", "error": str(exc)[:500]})
@@ -260,7 +304,8 @@ def write_report(report):
         lines.extend([
             f"### {item['title']}",
             f"- Author(s): {authors}",
-            f"- Catalog downloads: {item['download_count']}",
+            f"- Catalog downloads (rough popularity signal): {item['download_count']}",
+            f"- Matched search: {item.get('matched_search', 'classic story')}",
             f"- Source: {item['source_page_url']}",
             f"- Rights note: {item['review_note']}",
             "",
@@ -281,11 +326,15 @@ def write_report(report):
 def main():
     parser = argparse.ArgumentParser(description="Discover reusable cartoon video and classic story candidates.")
     parser.add_argument("--limit", type=int, default=15, help="Maximum candidates per source (1-30).")
+    parser.add_argument("--franchise", choices=["all", *REFERENCE_ONLY_FRANCHISES], default="all",
+                        help="Search a famous cartoon name for openly licensed candidates; never fetches official episodes.")
+    parser.add_argument("--story", choices=["all", *CLASSIC_STORY_SEARCHES], default="all",
+                        help="Focus story discovery on a famous classic title.")
     args = parser.parse_args()
     if not 1 <= args.limit <= 30:
         parser.error("--limit must be between 1 and 30")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-    report = build_report(args.limit)
+    report = build_report(args.limit, franchise=args.franchise, story=args.story)
     json_path, md_path = write_report(report)
     print(f"Cartoon video candidates: {len(report['cartoon_video_candidates'])}")
     print(f"Popular story candidates: {len(report['popular_story_source_candidates'])}")
