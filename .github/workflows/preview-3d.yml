@@ -1,0 +1,43 @@
+name: 3D Cartoon Prototype Preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: animals-3d-prototype-preview
+  cancel-in-progress: false
+
+jobs:
+  render-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout this repository only
+        uses: actions/checkout@v4
+
+      - name: Install Blender and FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender ffmpeg
+
+      - name: Render 5-second stylized 3D cartoon
+        run: |
+          mkdir -p output
+          blender --background --python scripts/3d_prototype.py -- --output output/animals-3d-prototype.mp4
+
+      - name: Validate rendered video
+        run: |
+          test -s output/animals-3d-prototype.mp4
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 output/animals-3d-prototype.mp4
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate -of default=noprint_wrappers=1 output/animals-3d-prototype.mp4
+
+      - name: Upload prototype preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: animals-3d-prototype-preview
+          path: output/animals-3d-prototype.mp4
+          if-no-files-found: error
+          retention-days: 7
