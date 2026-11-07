@@ -55,6 +55,8 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+      - name: Check Python source syntax
+        run: python -m py_compile main.py longform.py
       - name: Install FFmpeg
         run: |
           sudo apt-get update
