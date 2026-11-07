@@ -38,6 +38,15 @@ NON_MOVIE_TERMS = (
     "webrip", "web rip", "camrip", "cam rip", "hdcam", "pre dvdrip",
     "pre-dvdrip", "telesync", "telecine", "480p", "360p"
 )
+NON_FILM_ASSET_TERMS = (
+    "vhs glitch", "glitch overlay", "vhs overlay", "vhs effects",
+    "film grain overlay", "noise overlay", "video overlay", "overlay pack",
+    "transition pack", "visual effects pack", "stock footage",
+    "background loop", "motion graphics", "color bars", "smpte bars",
+    "test pattern", "screen effect", "video effect", "film effect",
+    "texture pack", "analog video effect"
+)
+
 STRONG_FILM_SIGNALS = (
     "feature film", "feature-length film", "feature length film",
     "full-length film", "full length film", "motion picture",
@@ -89,6 +98,16 @@ def looks_like_non_movie(metadata, fallback_title=""):
     return False
 
 
+def looks_like_non_film_asset(metadata, fallback_title=""):
+    searchable = _metadata_text(metadata, fallback_title)
+    title = _normalize(metadata.get("title") or fallback_title)
+    title_only_terms = ("overlay", "texture pack", "transition pack", "test pattern")
+    return (
+        any(term in searchable for term in NON_FILM_ASSET_TERMS)
+        or any(term in title for term in title_only_terms)
+    )
+
+
 def has_film_metadata(metadata, fallback_title=""):
     fields = ("genre", "subject", "collection", "type", "description", "director", "cast", "runtime", "imdb", "imdb_id", "mediatype")
     classified = _normalize(" ".join(_text(metadata.get(key, "")) for key in fields))
@@ -116,12 +135,12 @@ def _release_year(metadata, fallback_date=""):
     return None
 
 
-def _search_docs(query, rows):
+def _search_docs(query, rows, page=1):
     params = {
         "q": query,
         "fl[]": ["identifier", "title", "licenseurl", "creator", "date", "year", "downloads"],
         "rows": max(1, min(int(rows), 500)),
-        "page": 1,
+        "page": max(1, int(page)),
         "sort[]": "downloads desc",
         "output": "json",
     }
@@ -130,7 +149,7 @@ def _search_docs(query, rows):
     return response.json().get("response", {}).get("docs", [])
 
 
-def search_movies(rows=250):
+def search_movies(rows=250, pages=2):
     # The licenseurl field is inconsistently indexed by Archive.org. Search
     # the movie collection broadly if the indexed-license query returns none;
     # every record still passes the exact license allowlist below.
@@ -139,19 +158,43 @@ def search_movies(rows=250):
         'OR licenseurl:"https://creativecommons.org/publicdomain/zero/1.0/" '
         'OR licenseurl:"https://creativecommons.org/licenses/by/4.0/")'
     )
-    docs = _search_docs(licensed_query, rows)
+    pages = max(1, min(int(pages), 5))
+    docs = []
+    seen_identifiers = set()
+
+    def collect_pages(query):
+        collected = []
+        for page in range(1, pages + 1):
+            page_docs = _search_docs(query, rows, page=page)
+            if not page_docs:
+                break
+            added = 0
+            for doc in page_docs:
+                identifier = doc.get("identifier")
+                if identifier and identifier not in seen_identifiers:
+                    seen_identifiers.add(identifier)
+                    collected.append(doc)
+                    added += 1
+            if len(page_docs) < max(1, min(int(rows), 500)) or added == 0:
+                break
+        return collected
+
+    docs.extend(collect_pages(licensed_query))
     if not docs:
         log.warning(
             "Internet Archive returned 0 results for its indexed license search; "
             "trying the movie collection and verifying each record's declared license."
         )
-        docs = _search_docs("mediatype:movies", rows)
+        docs.extend(collect_pages("mediatype:movies"))
 
-    log.info("Internet Archive discovery returned %d movie records to inspect.", len(docs))
+    log.info(
+        "Internet Archive discovery returned %d unique movie records to inspect across %d page(s).",
+        len(docs), pages
+    )
     candidates = []
     rejected = {
         "missing_identifier": 0, "metadata_unavailable": 0, "license": 0,
-        "animation_or_non_movie": 0, "year_missing_or_old": 0,
+        "animation_or_non_movie": 0, "non_movie_asset": 0, "year_missing_or_old": 0,
         "film_metadata": 0, "no_mp4": 0
     }
 
@@ -182,6 +225,9 @@ def search_movies(rows=250):
         if looks_animated(metadata, title) or looks_like_non_movie(metadata, title):
             rejected["animation_or_non_movie"] += 1
             continue
+        if looks_like_non_film_asset(metadata, title):
+            rejected["non_movie_asset"] += 1
+            continue
 
         release_year = _release_year(metadata, doc.get("year") or doc.get("date", ""))
         if release_year is None or release_year < MIN_RELEASE_YEAR:
@@ -204,7 +250,38 @@ def search_movies(rows=250):
             rejected["no_mp4"] += 1
             continue
 
-        chosen = max(mp4s, key=lambda item: item["_size"])
+        # Prefer a genuine Full-HD MP4 variant over a larger low-resolution copy.
+        # Archive.org file metadata may omit dimensions; ffprobe remains the final authority.
+        def file_quality_rank(file_info):
+            try:
+                width = int(file_info.get("width", 0) or 0)
+                height = int(file_info.get("height", 0) or 0)
+                bitrate = int(file_info.get("bitrate") or file_info.get("bit_rate") or 0)
+            except (TypeError, ValueError):
+                width, height, bitrate = 0, 0, 0
+            full_hd = (
+                (width >= 1920 and height >= 1080)
+                or (width >= 1080 and height >= 1920)
+            )
+            return (int(full_hd), width * height, bitrate, int(file_info.get("_size", 0)))
+
+        chosen = max(mp4s, key=file_quality_rank)
+        try:
+            source_width = int(chosen.get("width", 0) or 0)
+            source_height = int(chosen.get("height", 0) or 0)
+        except (TypeError, ValueError):
+            source_width, source_height = 0, 0
+
+        if source_width and source_height:
+            full_hd = (
+                (source_width >= 1920 and source_height >= 1080)
+                or (source_width >= 1080 and source_height >= 1920)
+            )
+            if not full_hd:
+                rejected.setdefault("source_below_full_hd", 0)
+                rejected["source_below_full_hd"] += 1
+                continue
+
         candidates.append({
             "identifier": identifier,
             "title": title,
@@ -214,6 +291,8 @@ def search_movies(rows=250):
             "release_year": release_year,
             "file_name": chosen["name"],
             "file_size": chosen["_size"],
+            "source_width": source_width,
+            "source_height": source_height,
             "download_url": f"https://archive.org/download/{identifier}/{requests.utils.quote(chosen['name'])}",
             "details_url": f"https://archive.org/details/{identifier}",
         })
