@@ -30,7 +30,10 @@ NON_MOVIE_TERMS = (
     "educational recording", "workshop", "commission", "sewer",
     "city council", "public hearing", "board meeting", "municipal",
     "township", "agenda", "meeting minutes", "livestream", "live stream",
-    "webcast", "recorded session", "public access"
+    "webcast", "recorded session", "public access", "vlog",
+    "behind the scenes", "interview", "audition", "rap battle",
+    "team mission", "full version", "official trailer", "teaser",
+    "preview", "performance", "풀버전", "무삭제", "브이로그", "예고편"
 )
 STRONG_FILM_SIGNALS = (
     "feature film", "feature-length film", "feature length film",
@@ -91,13 +94,8 @@ def has_film_metadata(metadata, fallback_title=""):
     genres = _normalize(" ".join(_text(metadata.get(key, "")) for key in ("genre", "subject")))
     if any(re.search(r"\b" + re.escape(genre) + r"\b", genres) for genre in FILM_GENRES):
         return True
-    # Internet Archive often has sparse genre fields. A dated movie record
-    # with a substantial synopsis is still a plausible film even when genre,
-    # runtime or IMDb fields are absent. Non-movie/animation checks run first.
-    title = _normalize(metadata.get("title") or fallback_title)
-    description = _text(metadata.get("description", "")).strip()
-    has_specific_title = len(title.split()) >= 2 and title not in {"unknown", "untitled", "video", "movie"}
-    return bool(has_specific_title and len(description) >= 120)
+    # A long description alone is not proof that a record is a feature film.
+    return False
 
 
 def _release_year(metadata, fallback_date=""):
@@ -160,6 +158,9 @@ def search_movies(rows=250):
             rejected["missing_identifier"] += 1
             continue
         title = str(doc.get("title") or identifier)
+        if str(identifier).casefold().startswith("youtube-"):
+            rejected["animation_or_non_movie"] += 1
+            continue
         try:
             metadata_response = requests.get(
                 IA_METADATA.format(identifier), headers=HEADERS, timeout=25
