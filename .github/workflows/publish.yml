@@ -64,10 +64,10 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: movie-reels-publisher
-          CLIP_MIN_SECONDS: "90"
-          CLIP_MAX_SECONDS: "180"
+          CLIP_MIN_SECONDS: "85"
+          CLIP_MAX_SECONDS: "89"
           MAX_SOURCE_MB: "800"
-          IA_SEARCH_ROWS: "100"
+          IA_SEARCH_ROWS: "500"
         run: python main.py
       - name: Save generated video for review
         if: always()
