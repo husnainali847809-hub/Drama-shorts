@@ -423,13 +423,15 @@ def write_report(report):
             f"### {item['title']}",
             f"- Creator: {item['creator']}",
             f"- License: {item['license_label_from_source']} ({item['license']})",
+            f"- Animation evidence: {', '.join(item.get('animation_evidence', []))}",
+            f"- Rights review flags: {', '.join(item.get('rights_review_flags', [])) or 'No metadata conflict detected; manual review still required'}",
             f"- Source: {item['source_page_url']}",
             f"- Direct video: {item['video_url']}",
             "- Status: candidate only; check music, voices, characters, duration and worldwide rights.",
             "",
         ])
     if not report["cartoon_video_candidates"]:
-        lines.append("No matching video candidates with recognized license metadata were returned.")
+        lines.append("No likely-animation video candidates with recognized license metadata were returned.")
         lines.append("")
     lines.extend(["## Videos matching popular story titles", ""])
     for item in report["story_based_cartoon_video_candidates"]:
@@ -462,7 +464,10 @@ def write_report(report):
             f"- Notice: {item['notice']}",
             "",
         ])
-    lines.extend(["## Popular classic-story sources (Project Gutenberg)", ""])
+    lines.extend(["## Popular classic-story sources", ""])
+    if report.get("story_source_fallback_attempted"):
+        lines.append("- Open Library fallback was attempted because Project Gutenberg returned no records.")
+        lines.append("")
     for item in report["popular_story_source_candidates"]:
         authors = ", ".join(item["authors"]) or "Author not listed"
         lines.extend([
