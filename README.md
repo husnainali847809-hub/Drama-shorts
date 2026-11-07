@@ -14,7 +14,7 @@ Motu Patlu and Chhota Bheem are included as reference-only names. The system doe
 
 ## Run internet discovery
 
-Open **Actions → Internet Cartoon & Story Discovery → Run workflow**. The workflow also refreshes the discovery report weekly. It uses public catalog APIs and does not need Facebook, Buffer, Cloudinary or AI-model secrets.
+Open **Actions → Internet Cartoon & Story Discovery → Run workflow**. Choose a famous cartoon name (Motu Patlu, Chhota Bheem, Tom and Jerry, Doraemon, Shinchan or Oggy) and a classic story title (Cinderella, Alice in Wonderland, Pinocchio, Peter Pan, The Jungle Book, etc.), or leave both as **all**. The workflow also refreshes the discovery report weekly. It uses public catalog APIs and does not need Facebook, Buffer, Cloudinary or AI-model secrets.
 
 The report contains:
 - Existing cartoon video candidates from Wikimedia Commons with recognized license metadata.
