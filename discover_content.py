@@ -38,6 +38,7 @@ SESSION.mount("https://", ADAPTER)
 SESSION.mount("http://", ADAPTER)
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 GUTENDEX_API = "https://gutendex.com/books/"
+OPEN_LIBRARY_API = "https://openlibrary.org/search.json"
 VIDEO_LICENSES = {
     "cc0 1.0": "CC0-1.0",
     "cc by 4.0": "CC-BY-4.0",
@@ -89,13 +90,13 @@ def clean(value, limit=500):
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
-def get_json(url, params=None):
+def get_json(url, params=None, timeout=(8, 18)):
     try:
         response = SESSION.get(
             url,
             params=params,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-            timeout=(10, 25),
+            timeout=timeout,
         )
         response.raise_for_status()
         time.sleep(1.0)  # Be polite to public APIs and reduce HTTP 429 responses.
@@ -110,9 +111,46 @@ def normalize_video_license(short_name):
     return VIDEO_LICENSES.get(clean(short_name).lower())
 
 
-def discover_cartoon_videos(limit=15, queries=None):
-    """Find Commons video files with recognized reuse-friendly license labels."""
+def normalized_words(value):
+    return re.sub(r"[^a-z0-9]+", " ", clean(value, 4000).casefold()).strip()
+
+
+def animation_relevance(title, description):
+    """Return a conservative metadata-only animation relevance decision."""
+    text = f"{title} {description}".casefold()
+    positive = (
+        "animation", "animated", "cartoon", "anime", "animacion", "animación",
+        "2d", "3d", "cgi", "blender open movie", "stop motion",
+        "motion graphics", "puppet animation",
+    )
+    negative = (
+        "documentary", "prison", "restoration", "restaur", "interview",
+        "talking in", "language", "hot spring", "travel vlog",
+    )
+    hits = [word for word in positive if word in text]
+    blocks = [word for word in negative if word in text]
+    if blocks:
+        return False, hits, blocks
+    return bool(hits), hits, blocks
+
+
+def story_title_matches(title, description, story_title):
+    """Require a meaningful title match; search-engine proximity is not enough."""
+    haystack = normalized_words(f"{title} {description}")
+    needle = normalized_words(story_title)
+    if not needle:
+        return False
+    if needle in haystack:
+        return True
+    ignored = {"the", "a", "an", "of", "in", "and"}
+    tokens = [word for word in needle.split() if word not in ignored]
+    return bool(tokens) and all(re.search(rf"\b{re.escape(word)}\b", haystack) for word in tokens)
+
+
+def discover_cartoon_videos(limit=15, queries=None, excluded=None, require_story_match=False):
+    """Find licensed Commons videos, retaining only likely animation metadata matches."""
     found = {}
+    excluded = excluded if excluded is not None else []
     for term in dict.fromkeys(queries or CARTOON_SEARCHES):
         data = get_json(COMMONS_API, {
             "action": "query",
@@ -138,20 +176,40 @@ def discover_cartoon_videos(limit=15, queries=None):
 
             def meta(key):
                 value = metadata.get(key, {})
-                return clean(value.get("value") if isinstance(value, dict) else value, 800)
+                return clean(value.get("value") if isinstance(value, dict) else value, 1200)
 
             description = meta("ImageDescription")
-            # Commons search can return loosely related pages. For famous-franchise
-            # searches, require the exact franchise name in the file title or description.
             if term in REFERENCE_ONLY_FRANCHISES:
                 searchable_text = f"{title} {description}".casefold()
                 if term.casefold() not in searchable_text:
                     continue
+            if require_story_match and not story_title_matches(title, description, term):
+                continue
+
+            is_animation, positive_hits, negative_hits = animation_relevance(title, description)
+            if not is_animation:
+                excluded.append({
+                    "title": title,
+                    "search_term": term,
+                    "reason": "No animation evidence in title/description" if not negative_hits else "Metadata indicates unrelated live-action/documentary content",
+                    "matched_terms": positive_hits,
+                    "blocking_terms": negative_hits,
+                })
+                continue
 
             short_license = meta("LicenseShortName")
             normalized = normalize_video_license(short_license)
             if not normalized:
                 continue
+
+            # A file-page license label can conflict with a separate license statement
+            # in the description. Flag this for manual review rather than choosing one.
+            description_has_sharealike = bool(re.search(
+                r"(?:license\s*:\s*)?creative commons attribution[- ]sharealike\s*4\.0|"
+                r"(?:license\s*:\s*)?cc\s*by[- ]sa\s*4\.0",
+                description, re.IGNORECASE
+            ))
+            license_conflict = normalized == "CC-BY-4.0" and description_has_sharealike
             page_id = page.get("pageid")
             page_url = f"https://commons.wikimedia.org/wiki/{quote(str(page.get('title', '')).replace(' ', '_'))}"
             found[str(page_id or title)] = {
@@ -165,10 +223,17 @@ def discover_cartoon_videos(limit=15, queries=None):
                 "license_label_from_source": short_license,
                 "license_url": meta("LicenseUrl"),
                 "description": description,
+                "animation_relevance": "likely_animation_based_on_metadata",
+                "animation_evidence": positive_hits,
+                "license_metadata_conflict": license_conflict,
+                "rights_review_flags": (
+                    ["Description mentions CC BY-SA 4.0 while Commons label says CC BY 4.0"]
+                    if license_conflict else []
+                ),
                 "rights_status": "candidate_only_human_review_required",
                 "commercial_use_and_modifications": "generally permitted by this license; verify exact work and embedded elements",
                 "worldwide_rights_confirmed": False,
-                "share_alike_obligation": normalized == "CC-BY-SA-4.0",
+                "share_alike_obligation": normalized == "CC-BY-SA-4.0" or license_conflict,
                 "duration_check_required": True,
             }
             if len(found) >= limit:
@@ -177,12 +242,11 @@ def discover_cartoon_videos(limit=15, queries=None):
             break
     return list(found.values())[:limit]
 
-
 def discover_story_sources(limit=20, searches=None):
-    """Find popular classic story texts; Gutenberg jurisdiction must be reviewed."""
+    """Find Project Gutenberg records; timeout is handled by an Open Library fallback."""
     found = {}
     for term in dict.fromkeys(searches or STORY_SEARCHES):
-        data = get_json(GUTENDEX_API, {"search": term, "page": 1})
+        data = get_json(GUTENDEX_API, {"search": term, "page": 1}, timeout=(5, 12))
         for book in data.get("results", []):
             book_id = book.get("id")
             if not book_id or str(book_id) in found:
@@ -194,6 +258,7 @@ def discover_story_sources(limit=20, searches=None):
                 or formats.get("text/plain")
             )
             found[str(book_id)] = {
+                "source_catalog": "Project Gutenberg",
                 "gutenberg_id": book_id,
                 "title": clean(book.get("title"), 180),
                 "matched_search": term,
@@ -211,6 +276,38 @@ def discover_story_sources(limit=20, searches=None):
     books = sorted(found.values(), key=lambda item: item["download_count"], reverse=True)
     return books[:limit]
 
+
+def discover_openlibrary_story_sources(limit=20, searches=None):
+    """Fallback story-catalog discovery; Open Library records are NOT rights clearance."""
+    found = {}
+    for term in dict.fromkeys(searches or STORY_SEARCHES[:3]):
+        data = get_json(OPEN_LIBRARY_API, {
+            "q": term,
+            "limit": min(max(limit, 5), 25),
+            "fields": "key,title,author_name,first_publish_year,subject,edition_count",
+        }, timeout=(8, 20))
+        for book in data.get("docs", []):
+            key = clean(book.get("key"), 120)
+            if not key or key in found:
+                continue
+            found[key] = {
+                "source_catalog": "Open Library",
+                "catalog_key": key,
+                "title": clean(book.get("title"), 180),
+                "matched_search": term,
+                "authors": [clean(a, 120) for a in book.get("author_name", [])[:5]],
+                "first_publish_year": book.get("first_publish_year"),
+                "subjects": [clean(s, 100) for s in book.get("subject", [])[:8]],
+                "edition_count": int(book.get("edition_count") or 0),
+                "source_page_url": f"https://openlibrary.org{key}",
+                "rights_status": "unknown_manual_copyright_review_required",
+                "worldwide_rights_confirmed": False,
+                "review_note": "Open Library catalog presence does not establish public-domain or reuse rights. Verify the original story, exact edition, translation, illustrations and commercial-use rights before adaptation.",
+            }
+        if len(found) >= limit:
+            break
+    books = sorted(found.values(), key=lambda item: item["edition_count"], reverse=True)
+    return books[:limit]
 
 def build_report(limit=15, franchise="all", story="all"):
     if franchise != "all" and franchise not in REFERENCE_ONLY_FRANCHISES:
@@ -230,6 +327,8 @@ def build_report(limit=15, franchise="all", story="all"):
         "cartoon_video_candidates": [],
         "story_based_cartoon_video_candidates": [],
         "popular_story_source_candidates": [],
+        "story_source_fallback_used": False,
+        "filtered_out_video_results": [],
         "franchise_searches": [],
         "reference_only_copyrighted_franchises": [
             {
@@ -242,20 +341,26 @@ def build_report(limit=15, franchise="all", story="all"):
         "source_errors": [],
     }
     stories = []
-    try:
-        gutenberg_queries = (story_queries if story != "all" else []) + list(STORY_SEARCHES[:3])
-        stories = discover_story_sources(limit, searches=list(dict.fromkeys(gutenberg_queries)))
+    gutenberg_queries = (story_queries if story != "all" else []) + list(STORY_SEARCHES[:3])
+    stories = discover_story_sources(limit, searches=list(dict.fromkeys(gutenberg_queries)))
+    if stories:
         report["popular_story_source_candidates"] = stories
         logging.info("Project Gutenberg story sources: %s candidate(s)", len(stories))
-    except Exception as exc:
-        logging.exception("Project Gutenberg story discovery failed")
-        report["source_errors"].append({"source": "Project Gutenberg story sources", "error": str(exc)[:500]})
+    else:
+        # Gutendex has been timing out; use a separate catalog as a discovery-only fallback.
+        fallback_queries = (story_queries if story != "all" else []) + list(STORY_SEARCHES[:3])
+        fallback = discover_openlibrary_story_sources(limit, searches=list(dict.fromkeys(fallback_queries)))
+        report["popular_story_source_candidates"] = fallback
+        report["story_source_fallback_used"] = bool(fallback)
+        logging.info("Open Library fallback story sources: %s candidate(s)", len(fallback))
 
     try:
         report["cartoon_video_candidates"] = discover_cartoon_videos(
-            limit, queries=list(dict.fromkeys(franchise_queries + list(CARTOON_SEARCHES)))
+            limit,
+            queries=list(dict.fromkeys(franchise_queries + list(CARTOON_SEARCHES))),
+            excluded=report["filtered_out_video_results"],
         )
-        logging.info("Wikimedia Commons cartoon videos: %s candidate(s)", len(report["cartoon_video_candidates"]))
+        logging.info("Likely animation video candidates: %s candidate(s)", len(report["cartoon_video_candidates"]))
         report["franchise_searches"] = [
             {
                 "name": name,
@@ -276,7 +381,8 @@ def build_report(limit=15, franchise="all", story="all"):
     if story_titles:
         try:
             report["story_based_cartoon_video_candidates"] = discover_cartoon_videos(
-                limit, queries=story_titles
+                limit, queries=story_titles, require_story_match=True,
+                excluded=report["filtered_out_video_results"],
             )
             logging.info(
                 "Story-title-matched cartoon videos: %s candidate(s)",
@@ -333,6 +439,14 @@ def write_report(report):
     if not report["story_based_cartoon_video_candidates"]:
         lines.append("No matching story-title videos with recognized license metadata were returned.")
         lines.append("")
+    lines.extend(["## Video results excluded by relevance filter", ""])
+    for item in report.get("filtered_out_video_results", []):
+        lines.extend([
+            f"- {item['title']} — {item['reason']} (search: {item['search_term']})",
+        ])
+    if not report.get("filtered_out_video_results"):
+        lines.append("- None")
+    lines.append("")
     lines.extend(["## Famous cartoon franchise searches (reference only)", ""])
     for item in report.get("franchise_searches", []):
         lines.extend([
@@ -347,14 +461,15 @@ def write_report(report):
         lines.extend([
             f"### {item['title']}",
             f"- Author(s): {authors}",
-            f"- Catalog downloads (rough popularity signal): {item['download_count']}",
+            (f"- Catalog downloads (rough popularity signal): {item['download_count']}" if item.get("download_count") is not None else f"- Catalog editions (rough catalog signal, not popularity): {item.get('edition_count', 0)}"),
             f"- Matched search: {item.get('matched_search', 'classic story')}",
             f"- Source: {item['source_page_url']}",
+            f"- Catalog: {item.get('source_catalog', 'Project Gutenberg')}",
             f"- Rights note: {item['review_note']}",
             "",
         ])
     if not report["popular_story_source_candidates"]:
-        lines.append("No story records were returned.")
+        lines.append("No story records were returned by Project Gutenberg or the fallback catalog.")
         lines.append("")
     lines.extend(["", "## Source errors", ""])
     if report["source_errors"]:
