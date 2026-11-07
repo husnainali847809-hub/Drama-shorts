@@ -674,7 +674,7 @@ def queue_reel(video_url,caption,post_type="reel"):
         raise RuntimeError("Unsupported Facebook post type.")
     channel=verify_channel()
     channel_id=need("BUFFER_CHANNEL_ID")
-    mutation=f\'''mutation CreateFunnyAnimalsVideo {{
+    mutation=f'''mutation CreateFunnyAnimalsVideo {{
       createPost(input: {{
         text: {json.dumps(caption,ensure_ascii=False)}
         channelId: {json.dumps(channel_id)}
@@ -687,7 +687,7 @@ def queue_reel(video_url,caption,post_type="reel"):
         ... on PostActionSuccess {{ post {{ id status dueAt channelId }} }}
         ... on MutationError {{ message }}
       }}
-    }}\'''
+    }}'''
     result=buffer_api(mutation).get("createPost") or {}
     if result.get("message"): raise RuntimeError("Buffer rejected Facebook video post: "+result["message"])
     post=result.get("post")
