@@ -106,7 +106,7 @@ def find_licensed_images(query, limit=3):
     # progressively broader searches, while keeping the same strict license gate.
     query = _clean(query)
     variants = []
-    for candidate in (query, re.sub(r"\\b(\\w+)(?:\\s+\\1\\b)+", r"\\1", query, flags=re.I),
+    for candidate in (query, re.sub(r"\b(\w+)(?:\s+\1\b)+", r"\1", query, flags=re.I),
                       " ".join(query.split()[:4])):
         candidate = _clean(candidate)
         if candidate and candidate.casefold() not in {x.casefold() for x in variants}:
