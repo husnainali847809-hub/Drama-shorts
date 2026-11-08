@@ -1,4 +1,4 @@
-name: Movie Reels - Facebook Buffer Publisher
+name: Hindi Mixed Content - Facebook Buffer Publisher
 
 on:
   schedule:
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Set true to process one licensed movie scene and add it to Buffer"
+        description: "Set true to generate one Hindi Reel and add it to the Animated Jungle Buffer queue"
         required: true
         type: boolean
         default: false
@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movie-reels-facebook-buffer
+  group: hindi-mixed-content-facebook-buffer
   cancel-in-progress: false
 
 jobs:
@@ -33,49 +33,57 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Restore used-film history
+
+      - name: Restore mixed-content history
         uses: actions/cache@v4
         with:
           path: history.sqlite3
-          key: movie-reels-history-${{ github.run_id }}
+          key: mixed-content-history-${{ github.run_id }}
           restore-keys: |
-            movie-reels-history-
+            mixed-content-history-
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install FFmpeg
+
+      - name: Install FFmpeg and Hindi font
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
-      - name: Install dependencies
+          sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Check Python syntax
-        run: python -m compileall -q .
-      - name: Process one licensed movie scene and queue as a Facebook Reel
+
+      - name: Validate Python and source filters
+        run: |
+          python -m compileall -q .
+          python -m unittest discover -s tests -v
+
+      - name: Generate Hindi mixed-content Reel and queue to Animated Jungle
         env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
+          HINDI_TTS_VOICE: hi-IN-SwaraNeural
+          MIXED_SLOT_CRON: ${{ github.event.schedule || '' }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_CHANNEL_ID: ${{ vars.BUFFER_CHANNEL_ID }}
-          BUFFER_EXPECTED_CHANNEL_NAME: ${{ vars.BUFFER_EXPECTED_CHANNEL_NAME }}
+          BUFFER_EXPECTED_CHANNEL_NAME: Animated Jungle
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          CLOUDINARY_FOLDER: movie-reels-publisher
           CLIP_MIN_SECONDS: "85"
           CLIP_MAX_SECONDS: "89"
-          MAX_SOURCE_MB: "800"
-          IA_SEARCH_ROWS: "500"
-          IA_SEARCH_PAGES: "2"
-          COMMONS_SEARCH_LIMIT: "100"
-        run: python main.py
-      - name: Save generated video for review
+        run: python -m mixed_content.main
+
+      - name: Save generated video and metadata
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: movie-reel-${{ github.run_id }}
-          path: output/
+          name: hindi-mixed-reel-${{ github.run_id }}
+          path: output/mixed_content/
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 5
