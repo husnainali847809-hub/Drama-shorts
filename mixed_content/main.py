@@ -164,9 +164,35 @@ def download_images(items):
             paths.append(path)
         else:
             path.unlink(missing_ok=True)
-    if len(paths) < 3:
-        raise RuntimeError("Fewer than three valid licensed visuals downloaded.")
+    if len(paths) < len(items):
+        log.warning("Downloaded %d of %d available verified Commons visuals; remaining scenes will reuse available visuals or fallback art.",
+                    len(paths), len(items))
     return paths
+
+def make_fallback_visual(topic):
+    """Create an original topic title card when Commons has no reusable image."""
+    WORK.mkdir(parents=True, exist_ok=True)
+    image = WORK / "original_topic_visual.png"
+    title_file = WORK / "fallback_topic.txt"
+    title_file.write_text(str(topic)[:100], encoding="utf-8")
+    font = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
+    if not Path(font).is_file():
+        font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    vf = (
+        "drawbox=x=70:y=260:w=940:h=1400:color=0x174A70@0.72:t=fill,"
+        "drawbox=x=100:y=290:w=880:h=1340:color=0x37A6A0@0.20:t=5,"
+        f"drawtext=fontfile={font}:text='HINDI DOCUMENTARY':fontcolor=0x79E6D0:fontsize=42:"
+        "x=(w-text_w)/2:y=650,"
+        f"drawtext=fontfile={font}:textfile={title_file}:fontcolor=white:fontsize=64:"
+        "line_spacing=18:box=1:boxcolor=black@0.22:boxborderw=30:"
+        "x=(w-text_w)/2:y=(h-text_h)/2"
+    )
+    ffmpeg(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=0x0B1728:s=1080x1920:d=1",
+            "-vf", vf, "-frames:v", "1", str(image)])
+    if not image.is_file() or image.stat().st_size < 1000:
+        raise RuntimeError("Could not create the original fallback topic visual.")
+    return image
 
 async def create_voice(segments):
     files = []
@@ -296,6 +322,11 @@ def run_once():
     script = make_script(research, category)
     images_meta = find_licensed_images(research["search_terms"], limit=3)
     images = download_images(images_meta)
+    if not images:
+        log.warning("No reusable Commons images available; generating an original topic visual for all scenes.")
+        images = [make_fallback_visual(research["title"])]
+    elif len(images) < 3:
+        log.info("Using %d verified Commons visual(s) across all five scenes.", len(images))
     voice_files = asyncio.run(create_voice(script["segments"]))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     output = WORK / f"{category}-{stamp}.mp4"
