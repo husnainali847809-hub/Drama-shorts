@@ -124,14 +124,10 @@ Never invent facts beyond the supplied source. Original-story category must be f
             raw = (choices[0].get("message") or {}).get("content") if choices else ""
             if isinstance(raw, list):
                 raw = "".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
-            if isinstance(raw, list):
-                raw = "".join(
-                    str(part.get("text", "")) for part in raw if isinstance(part, dict)
-                )
-            raw = str(raw or "").strip().lstrip("\\ufeff")
+            raw = str(raw or "").strip().lstrip("\ufeff")
             if not raw:
                 raise ValueError("OpenRouter returned empty message content.")
-            raw = re.sub(r"^\x60{3}(?:json)?\\s*|\\s*\x60{3}$", "", raw, flags=re.I).strip()
+            raw = re.sub(r"^\x60{3}(?:json)?\s*|\s*\x60{3}$", "", raw, flags=re.I).strip()
             decoder = json.JSONDecoder()
             result = None
             for position, char in enumerate(raw):
