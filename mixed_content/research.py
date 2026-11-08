@@ -70,6 +70,9 @@ def get_research(category, day_index=0):
     if category == "movie_explainer":
         title = MOVIES[day_index % len(MOVIES)]
         item = _wiki_page(title + " film plot production")
+        expected_word = title.split("(")[0].strip().split()[0].casefold()
+        if expected_word not in item["title"].casefold():
+            raise RuntimeError(f"Wikipedia search did not return the expected film page for {title}; skipping.")
         item["title"] = title
         item["search_terms"] = title + " film"
         item["editorial_angle"] = "Hindi movie story explanation with original commentary; do not reproduce dialogue or screenplay."
