@@ -136,6 +136,7 @@ def find_licensed_images(query, limit=3):
 
     found = []
     rejected = {"license": 0, "format": 0, "size": 0}
+    rejected_license_examples = {}
     # Fetch metadata in batches to avoid oversized API requests.
     for offset in range(0, len(titles), 50):
         batch = titles[offset:offset + 50]
@@ -164,6 +165,8 @@ def find_licensed_images(query, limit=3):
                 continue
             if not license_is_allowed(license_url):
                 rejected["license"] += 1
+                key = license_url or "missing/unparsed license URL"
+                rejected_license_examples[key] = rejected_license_examples.get(key, 0) + 1
                 continue
             if size <= 0 or size > 20 * 1024 * 1024:
                 rejected["size"] += 1
@@ -180,6 +183,7 @@ def find_licensed_images(query, limit=3):
                 return found
     log.warning("Commons image search for %r: %d candidates; rejected=%s; reusable=%d.",
                 query, len(titles), rejected, len(found))
+    log.info("Rejected license URL breakdown: %s", rejected_license_examples)
     raise RuntimeError(
         f"Only {len(found)} reusable images found for '{query}' after {len(titles)} Commons candidates. "
         "Strict commercial-use license checks remain enabled; refusing unlicensed visuals."
