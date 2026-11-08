@@ -18,21 +18,21 @@ Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until
 
 Follow `assets/music/README.md`. Add authorized tracks to the matching mood folder and add the required licence sidecar JSON. The pipeline supports action, emotional, comedy, romantic, suspense, and interesting scenes. If the selected mood has no valid music track, the run stops instead of using unlicensed music.
 
-## 4. Configure GitHub Actions secrets
+## 4. Configure GitHub Actions
 
-In GitHub: repository **Settings → Secrets and variables → Actions → New repository secret**.
+In GitHub: repository **Settings → Secrets and variables → Actions**.
 
-Required secrets:
+Add these as **Secrets**:
 - `OPENROUTER_API_KEY`
 - `BUFFER_API_KEY`
-- `BUFFER_CHANNEL_ID`
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
 
-Optional repository variable:
-- `OPENROUTER_MODEL` (default: `openrouter/free`)
-- `BUFFER_EXPECTED_CHANNEL_NAME` (if set, Buffer destination name is checked)
+Add these as **Variables**:
+- `BUFFER_CHANNEL_ID` (your intended Facebook channel ID in Buffer)
+- `BUFFER_EXPECTED_CHANNEL_NAME` (optional; if set, Buffer destination name is checked)
+- `OPENROUTER_MODEL` (optional; default: `openrouter/free`)
 
 Keep all secret values private. Existing Buffer and Cloudinary credentials can be reused if they are still valid.
 
