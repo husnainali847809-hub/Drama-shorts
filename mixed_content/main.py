@@ -110,8 +110,31 @@ Never invent facts beyond the supplied source. Original-story category must be f
                     {"role": "system", "content": "You are a careful Hindi scriptwriter. Return JSON only."},
                     {"role": "user", "content": prompt}],
                     "temperature": 0.65, "max_tokens": 2200},
-                timeout=60,
+                timeout=(15, 50),
             )
+            if response.status_code == 429:
+                # Shared free providers occasionally rate-limit the first call.
+                # Wait briefly and retry this model once before moving on.
+                import time
+                retry_after = response.headers.get("Retry-After", "")
+                try:
+                    delay = min(5, max(2, int(float(retry_after))))
+                except (TypeError, ValueError):
+                    delay = 3
+                log.warning("Free script model %s returned HTTP 429; retrying once in %ss.", model, delay)
+                time.sleep(delay)
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}", "Accept": "application/json",
+                             "Content-Type": "application/json",
+                             "HTTP-Referer": "https://github.com/husnainali847809-hub/animals-ai-automation",
+                             "X-OpenRouter-Title": "Hindi Mixed Content Factory"},
+                    json={"model": model, "messages": [
+                        {"role": "system", "content": "You are a careful Hindi scriptwriter. Return JSON only."},
+                        {"role": "user", "content": prompt}],
+                        "temperature": 0.65, "max_tokens": 2200},
+                    timeout=(15, 50),
+                )
             if not response.ok:
                 body = (response.text or "").strip() or "<empty response body>"
                 raise RuntimeError(f"OpenRouter HTTP {response.status_code}: {body[:500]}")
