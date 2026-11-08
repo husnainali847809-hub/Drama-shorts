@@ -51,7 +51,7 @@ def _wiki_page(query):
             continue
         detail = requests.get(WIKI_API, params={
             "action": "query", "format": "json", "prop": "extracts",
-            "explaintext": 1, "exintro": 1, "titles": title,
+            "explaintext": 1, "titles": title,
         }, headers=HEADERS, timeout=35)
         detail.raise_for_status()
         page = next(iter(detail.json().get("query", {}).get("pages", {}).values()), {})
