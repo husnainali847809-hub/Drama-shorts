@@ -1,83 +1,59 @@
-# Free Animal Stories — Facebook Reels
+# Pakistani Drama Clips Automation
 
-This branch replaces paid fal.ai generation with a free, local procedural 3D animation workflow. Blender creates original stylized animal characters and jungle scenes; Edge TTS creates Pakistani Urdu + English narration; FFmpeg assembles the final video.
+This repository is prepared to create **one vertical Pakistani drama clip per scheduled run** and add it to the configured Facebook Reel queue in Buffer. The schedule runs five times daily (Pakistan time: 09:00, 12:00, 15:00, 18:00, 21:00), for a target of five queued clips per day when all inputs and services are available.
 
-## Pilot format
-- Original story: Timo & Bunny: A Little Bridge of Friendship
-- Seven scenes, approximately 10 seconds each (about 70 seconds).
-- Vertical 9:16, 720×1280 at 24 fps, configured for an 8 GB RAM computer.
-- Original tiger cub and rabbit models built from Blender meshes.
-- Urdu + English narration.
-- Review-only output. Nothing is automatically published.
+## 1. Add authorized drama sources
 
-## Free tools
-- Blender: https://www.blender.org/download/
-- Python 3.10+ (3.11 recommended): https://www.python.org/downloads/
-- FFmpeg: https://ffmpeg.org/download.html
-- Edge TTS: free-to-use command-line library; internet is required and Microsoft service availability/terms may change.
+Open `resources/drama_sources.txt` and paste one YouTube channel URL or Facebook Page URL per line. The file is intentionally blank until you have permission from each rights holder.
 
-No fal.ai account, API key, paid image/video model, or paid generation credits are required. Rendering uses your PC resources and electricity. This produces stylized low-poly 3D animation, not photorealistic AI video.
+The system checks configured sources for recent uploads. YouTube channel feeds are supported through yt-dlp's normal public access. Facebook links may work only when the page/video is publicly accessible through yt-dlp. The system does not use cookies, bypass sign-in, DRM, private content, or platform restrictions.
 
-## Windows setup
-1. Install Blender.
-2. Install Python 3.11 and enable Add Python to PATH.
-3. Install FFmpeg and add its bin folder to PATH.
-4. Download this repository and open Command Prompt in its folder.
-5. Run:
-   ```powershell
-   py -m venv .venv
-   .venv\Scripts\activate
-   python -m pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-6. Generate:
-   ```powershell
-   python main.py --generate --pilot
-   ```
-If Blender is not on PATH, set BLENDER_EXE to its full blender.exe path, for example:
-   ```powershell
-   $env:BLENDER_EXE="C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"
-   ```
+## 2. Confirm reuse rights
 
-## Output and manual approval
-Output: output/animal_pilot/PILOT_Timo_and_Bunny_REVIEW_ONLY.mp4. Watch the complete MP4 before publishing. Generation never calls Buffer.
+Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until you have permission to download, edit, and repost clips from every listed source. After you receive permission, set it to `true` and add a short reference to the written permission in `permission_note`.
 
-Only after watching and approving the video, publishing can be explicitly invoked using existing Buffer/Cloudinary configuration:
-   ```powershell
-   $env:PUBLISH_APPROVED="true"
-   python main.py --publish-approved output/animal_pilot/PILOT_Timo_and_Bunny_REVIEW_ONLY.mp4 --caption "A little kindness creates a big friendship!"
-   ```
-This queues the approved video; it does not guarantee Facebook has published it.
+**A public channel link is not permission to reuse its episodes.** Do not enable this workflow without rights.
 
-## Limitations
-This free version creates stylized procedural 3D characters from Blender primitives. It is lightweight and dependable, but simpler than studio animation. Rendering may take a long time on 8 GB RAM. Keep other heavy apps closed. Edge TTS requires internet. No copyrighted cartoon, film, or TV footage is used.
+## 3. Add mood-matched music
 
+Follow `assets/music/README.md`. Add authorized tracks to the matching mood folder and add the required licence sidecar JSON. The pipeline supports action, emotional, comedy, romantic, suspense, and interesting scenes. If the selected mood has no valid music track, the run stops instead of using unlicensed music.
 
-## Hindi mixed-content Facebook Reels (Animated Jungle)
+## 4. Configure GitHub Actions secrets
 
-The scheduled publisher can create one Hindi Reel at each existing Pakistan-time slot:
-- 08:00 — movie explanation (original commentary based on a sourced article; no movie footage is downloaded)
-- 11:00 — anime/comic-inspired visual explainer (licensed still images with a stylized filter; this is not full AI video-to-anime conversion)
-- 14:00 — mini documentary
-- 17:00 — true-story explainer
-- 20:00 — original fictional Hindi story
+In GitHub: repository **Settings → Secrets and variables → Actions → New repository secret**.
 
-Each run researches a topic, creates an original five-part Hindi script with an OpenRouter free model, generates Hindi narration with Edge TTS, downloads only reusable Wikimedia Commons images (Public Domain, CC0 or CC BY 4.0), adds Hindi subtitles and locally synthesized background music, renders a vertical 1080x1920 / 30 fps / 87-second Reel, checks the output, uploads it to the existing Cloudinary account and adds it to the verified Animated Jungle Buffer queue.
+Required secrets:
+- `OPENROUTER_API_KEY`
+- `BUFFER_API_KEY`
+- `BUFFER_CHANNEL_ID`
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
 
-### GitHub Actions configuration
-Required GitHub secret:
-- **OPENROUTER_API_KEY** — an OpenRouter key; the workflow defaults to openrouter/free and tries free fallbacks.
+Optional repository variable:
+- `OPENROUTER_MODEL` (default: `openrouter/free`)
+- `BUFFER_EXPECTED_CHANNEL_NAME` (if set, Buffer destination name is checked)
 
-Existing connection settings must remain configured:
-- Secrets: **BUFFER_API_KEY**, **CLOUDINARY_CLOUD_NAME**, **CLOUDINARY_API_KEY**, **CLOUDINARY_API_SECRET**
-- Variables: **BUFFER_CHANNEL_ID**, **ENABLE_AUTO_PUBLISH=true**
+Keep all secret values private. Existing Buffer and Cloudinary credentials can be reused if they are still valid.
 
-The workflow checks the Buffer destination name and stops if it is not Animated Jungle. It queues through Buffer; queue acceptance is not proof that Facebook has published the Reel. Set ENABLE_AUTO_PUBLISH to true only when automatic queueing is intended.
+## 5. Enable scheduled runs
 
-### Rights and format notes
-- No copyrighted Hollywood/Bollywood/Punjabi movie footage or commercial soundtrack is downloaded or republished by this mixed-content engine.
-- Movie explainers use original narration and properly attributed source material; Wikipedia-derived adaptations are attributed and shared under CC BY-SA 4.0.
-- Wikimedia visuals are restricted to the existing commercial-reuse allowlist (Public Domain Mark, CC0 and CC BY 4.0), with credits included in the Buffer caption. If full attribution does not fit, the run stops rather than truncating credits.
-- The anime/comic slot currently applies a stylized visual treatment to licensed stills. Full generative video-to-anime transformation is not included because an unlimited free cloud model is not available.
-- OpenRouter free-model availability and Edge TTS service availability are not guaranteed. If a model, source, license, image or quality check fails, the workflow skips publishing rather than posting an incomplete Reel.
-- The existing Animal AI pilot workflow remains separate and review-only.
+The workflow is deliberately disabled for scheduled publishing until you set repository variable:
+`ENABLE_AUTO_PUBLISH=true`
+
+Go to **Settings → Secrets and variables → Actions → Variables** and add it only after source permission, music, and credentials are ready. A manual run is available from **Actions → Pakistani Drama Clips Automation → Run workflow**.
+
+Each successful run:
+1. Finds a new episode from configured sources.
+2. Detects scene windows and asks the configured OpenRouter model to classify/select a scene.
+3. Selects an authorized track matching the scene mood.
+4. Creates an 85-second 1080×1920 vertical clip, preserving the original dialogue and mixing music quietly underneath.
+5. Uploads the clip to Cloudinary and queues a Facebook Reel in Buffer.
+6. Saves the episode ID to the run-history cache to avoid processing it again.
+
+## Notes
+
+- A scheduled run can fail if no new episode exists, a platform blocks public extraction, AI classification fails, a licensed music track is missing, or a connected service rejects the request.
+- yt-dlp uses ordinary public access only; no authentication or restriction bypass is implemented.
+- The pipeline queues one clip per run; it does not directly publish to Facebook.
+- GitHub Actions and third-party free-tier quotas/limits still apply.

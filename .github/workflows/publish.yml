@@ -1,47 +1,40 @@
-name: Hindi Mixed Content - Facebook Buffer Publisher
+name: Pakistani Drama Clips Automation
 
 on:
   schedule:
-    # 08:00, 11:00, 14:00, 17:00, 20:00 Pakistan Standard Time (UTC+5)
-    - cron: "0 3 * * *"
-    - cron: "0 6 * * *"
-    - cron: "0 9 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 15 * * *"
+    # 09:00, 12:00, 15:00, 18:00, 21:00 Pakistan Standard Time (UTC+5)
+    - cron: "0 4 * * *"
+    - cron: "0 7 * * *"
+    - cron: "0 10 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "Set true to generate one Hindi Reel and add it to the Animated Jungle Buffer queue"
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: hindi-mixed-content-facebook-buffer
+  group: pakistani-drama-clips-buffer
   cancel-in-progress: false
 
 jobs:
   create-and-queue:
     if: >-
       (github.event_name == 'schedule' && vars.ENABLE_AUTO_PUBLISH == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore mixed-content history
+      - name: Restore processed episode history
         uses: actions/cache@v4
         with:
-          path: history.sqlite3
-          key: mixed-content-history-${{ github.run_id }}
+          path: state/processed.json
+          key: drama-history-${{ github.run_id }}
           restore-keys: |
-            mixed-content-history-
-            movie-reels-history-
+            drama-history-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,42 +42,38 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install FFmpeg and Hindi font
+      - name: Install FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
+          sudo apt-get install -y ffmpeg
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Validate Python and source filters
-        run: |
-          python -m compileall -q .
-          python -m unittest discover -s tests -v
+      - name: Validate Python syntax
+        run: python -m compileall -q .
 
-      - name: Generate Hindi mixed-content Reel and queue to Animated Jungle
+      - name: Find, edit and queue one authorized drama clip
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
-          HINDI_TTS_VOICE: hi-IN-SwaraNeural
-          MIXED_SLOT_CRON: ${{ github.event.schedule || '' }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
-          BUFFER_CHANNEL_ID: ${{ vars.BUFFER_CHANNEL_ID }}
-          BUFFER_EXPECTED_CHANNEL_NAME: Animated Jungle
+          BUFFER_CHANNEL_ID: ${{ secrets.BUFFER_CHANNEL_ID }}
+          BUFFER_EXPECTED_CHANNEL_NAME: ${{ vars.BUFFER_EXPECTED_CHANNEL_NAME }}
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          CLIP_MIN_SECONDS: "85"
-          CLIP_MAX_SECONDS: "89"
-        run: python -m mixed_content.main
+          CLOUDINARY_FOLDER: pakistani-drama-clips
+          CLIP_SECONDS: "85"
+        run: python main.py
 
-      - name: Save generated video and metadata
+      - name: Save generated clip for review
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hindi-mixed-reel-${{ github.run_id }}
-          path: output/mixed_content/
+          name: drama-clip-${{ github.run_id }}
+          path: output/
           if-no-files-found: ignore
           retention-days: 5
