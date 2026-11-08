@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 import cloudinary
 import cloudinary.uploader
+import imageio_ffmpeg
 import requests
 from moviepy import VideoFileClip, AudioFileClip, CompositeAudioClip
 from scenedetect import open_video, SceneManager
@@ -254,23 +255,99 @@ def download_episode(url, destination):
     )
 
 
-def candidate_starts(video_path):
-    video = open_video(str(video_path))
-    manager = SceneManager()
-    manager.add_detector(ContentDetector(threshold=27.0, min_scene_len=15))
-    manager.detect_scenes(video)
-    scenes = manager.get_scene_list()
-    duration = float(video.duration.get_seconds())
-    video.close()
+def get_stream_source(video_url):
+    """
+    Resolve a public, authorized video URL to a stream URL without saving
+    the full episode. The selected short segment is fetched later only.
+    """
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "format": "best[height<=1080]/best",
+        "socket_timeout": 30,
+        "extractor_retries": 2,
+    }
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(video_url, download=False)
+    if not isinstance(info, dict):
+        raise RuntimeError("Video source did not return usable stream metadata.")
+
+    stream_url = info.get("url")
+    if not stream_url:
+        # Prefer a single combined audio/video format. Separate DASH tracks
+        # require a more complex multi-input stream and are intentionally
+        # not guessed here.
+        formats = info.get("formats") or []
+        combined = [
+            item for item in formats
+            if item.get("url")
+            and item.get("vcodec") not in (None, "none")
+            and item.get("acodec") not in (None, "none")
+        ]
+        combined.sort(key=lambda item: (
+            item.get("height") or 0,
+            item.get("tbr") or 0
+        ), reverse=True)
+        if combined:
+            stream_url = combined[0]["url"]
+            info["http_headers"] = combined[0].get("http_headers") or info.get("http_headers") or {}
+
+    duration = float(info.get("duration") or 0)
+    if not stream_url or duration <= CLIP_SECONDS + 5:
+        raise RuntimeError(
+            "Could not resolve a single public audio/video stream or episode duration. "
+            "This source may require sign-in, verification, or separate DASH tracks."
+        )
+    headers = info.get("http_headers") or {}
+    return {
+        "url": stream_url,
+        "headers": headers,
+        "duration": duration,
+        "title": info.get("title") or "Drama episode",
+    }
+
+
+def ffmpeg_headers(headers):
+    lines = []
+    for key, value in (headers or {}).items():
+        if key and value is not None:
+            lines.append(f"{key}: {value}")
+    return ("\r\n".join(lines) + "\r\n") if lines else ""
+
+
+def extract_stream_frame(stream, second, destination):
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-rw_timeout", "30000000",
+        "-ss", f"{max(0.0, float(second)):.3f}",
+    ]
+    header_text = ffmpeg_headers(stream.get("headers"))
+    if header_text:
+        command.extend(["-headers", header_text])
+    command.extend([
+        "-i", stream["url"],
+        "-frames:v", "1",
+        "-vf", "scale='min(640,iw)':-2",
+        "-q:v", "3", "-y", str(destination),
+    ])
+    result = subprocess.run(command, capture_output=True, text=True, timeout=100)
+    if result.returncode != 0 or not Path(destination).exists() or Path(destination).stat().st_size == 0:
+        detail = (result.stderr or result.stdout or "No frame returned")[-500:]
+        raise RuntimeError(f"Could not read frame from online stream: {detail}")
+
+
+def candidate_starts(duration):
+    duration = float(duration)
     if duration < CLIP_SECONDS + 5:
         raise RuntimeError(f"Episode is too short for a {CLIP_SECONDS}-second clip.")
-    starts = [max(0.0, scene[0].get_seconds()) for scene in scenes]
-    starts.extend([0.0, max(0.0, duration - CLIP_SECONDS)])
-    valid = sorted({round(min(s, duration - CLIP_SECONDS), 2) for s in starts})
-    if len(valid) > 12:
-        indexes = [round(i * (len(valid) - 1) / 11) for i in range(12)]
-        valid = [valid[i] for i in indexes]
-    return valid, duration
+    # Sample up to 12 evenly distributed windows. This avoids downloading
+    # or scanning the entire episode locally.
+    last_start = max(0.0, duration - CLIP_SECONDS)
+    if last_start <= 0:
+        return [0.0]
+    return [round(last_start * i / 11, 2) for i in range(12)]
 
 
 def frame_data(clip, second):
@@ -284,16 +361,27 @@ def frame_data(clip, second):
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def classify_candidates(video_path, starts):
+def classify_stream_candidates(stream, starts, work_dir):
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
     model = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"
     frames = []
-    with VideoFileClip(str(video_path)) as video:
-        for index, start in enumerate(starts):
-            for offset in (CLIP_SECONDS * 0.25, CLIP_SECONDS * 0.70):
-                frames.append((index, frame_data(video, min(start + offset, video.duration - 0.1))))
+    from PIL import Image
+    import io
+
+    for index, start in enumerate(starts):
+        for frame_number, offset in enumerate((CLIP_SECONDS * 0.25, CLIP_SECONDS * 0.70)):
+            frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
+            extract_stream_frame(stream, start + offset, frame_path)
+            with Image.open(frame_path) as image:
+                image = image.convert("RGB")
+                image.thumbnail((640, 640))
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=78)
+                encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            frames.append((index, encoded))
+
     prompt = (
         "You are selecting a short Pakistani TV drama scene for an authorized social clip. "
         "Inspect the frames grouped by candidate number. Choose the most engaging coherent candidate. "
@@ -317,7 +405,7 @@ def classify_candidates(video_path, starts):
     raw = payload["choices"][0]["message"]["content"]
     if isinstance(raw, list):
         raw = " ".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
-    match = re.search(r"\{.*\}", str(raw), re.S)
+    match = re.search(r"\\{.*\\}", str(raw), re.S)
     if not match:
         raise RuntimeError(f"AI scene classifier returned no JSON: {str(raw)[:300]}")
     result = json.loads(match.group(0))
@@ -326,6 +414,32 @@ def classify_candidates(video_path, starts):
     if selected < 0 or selected >= len(starts) or category not in ALLOWED_CATEGORIES:
         raise RuntimeError(f"AI returned invalid scene selection: {result}")
     return starts[selected], category, str(result.get("reason", "")).strip()
+
+
+def fetch_selected_stream_clip(stream, start, destination):
+    """Fetch only the chosen short segment, not the full episode."""
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-rw_timeout", "30000000",
+        "-ss", f"{max(0.0, float(start)):.3f}",
+    ]
+    header_text = ffmpeg_headers(stream.get("headers"))
+    if header_text:
+        command.extend(["-headers", header_text])
+    command.extend([
+        "-i", stream["url"],
+        "-t", str(CLIP_SECONDS),
+        "-map", "0:v:0", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart", "-y", str(destination),
+    ])
+    result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0 or not Path(destination).exists() or Path(destination).stat().st_size < 100_000:
+        detail = (result.stderr or result.stdout or "No clip returned")[-700:]
+        raise RuntimeError(f"Could not fetch selected segment from online stream: {detail}")
+    return Path(destination)
 
 
 def reusable_music_track(category):
@@ -427,48 +541,50 @@ def main():
         return
     history = read_history()
     episode = None
+    stream = None
     source_used = None
-    episode_path = None
     source_errors = []
-    temp_dir_obj = tempfile.TemporaryDirectory(prefix="drama-clip-")
-    temp_dir = temp_dir_obj.name
+
     for source_index, source in enumerate(sources):
         try:
             found = discover_episode(source, set(history["video_ids"]))
             if not found:
                 log(f"No unseen episode found at source {source_index + 1}; checking next source.")
                 continue
-            source_template = Path(temp_dir) / f"episode_{source_index}.%(ext)s"
             try:
-                downloaded_path, metadata = download_episode(found["url"], source_template)
-            except Exception as download_error:
-                source_errors.append(f"{source}: download failed: {download_error}")
-                log(f"Source {source_index + 1} download failed; trying the next configured source.")
+                resolved_stream = get_stream_source(found["url"])
+            except Exception as stream_error:
+                source_errors.append(f"{source}: stream access failed: {stream_error}")
+                log(f"Source {source_index + 1} could not provide an online stream; trying the next source.")
                 continue
             episode = found
-            episode_path = downloaded_path
+            stream = resolved_stream
             source_used = source
             break
         except Exception as exc:
             source_errors.append(f"{source}: {exc}")
-            log(f"Source {source_index + 1} could not be checked; trying the next configured source.")
-    if not episode or not episode_path:
-        temp_dir_obj.cleanup()
+            log(f"Source {source_index + 1} could not be checked; trying the next source.")
+
+    if not episode or not stream:
         raise RuntimeError(
-            "No configured source could provide a new downloadable episode. "
-            "Use a direct public video/reel URL or a channel URL supported by yt-dlp; "
-            "some share/profile URLs and login-protected videos are not downloadable here. "
+            "No configured source provided an accessible online stream. "
+            "Streaming avoids downloading the full episode, but the platform must still expose "
+            "a public stream to this runner; sign-in/anti-bot protected videos will fail. "
             + " | ".join(source_errors[:5])
         )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="drama-work-") as work_dir:
-        starts, duration = candidate_starts(episode_path)
-        if not starts:
-            raise RuntimeError("No usable scene windows were detected.")
-        start, category, reason = classify_candidates(episode_path, starts)
+    with tempfile.TemporaryDirectory(prefix="drama-stream-work-") as work_dir:
+        starts = candidate_starts(stream["duration"])
+        log(
+            f"Resolved online stream for '{episode.get('title')}'. "
+            f"Checking {len(starts)} candidate windows without saving the full episode."
+        )
+        start, category, reason = classify_stream_candidates(stream, starts, work_dir)
+        selected_path = Path(work_dir) / "selected_scene.mp4"
+        fetch_selected_stream_clip(stream, start, selected_path)
         output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
-        music_meta = render_clip(episode_path, start, category, output_path)
+        music_meta = render_clip(selected_path, 0, category, output_path)
         public_url = upload_cloudinary(output_path)
         from publisher.buffer import queue_facebook_reel
         caption = f"{category.title()} scene from a Pakistani drama. #PakistaniDrama #DramaClips"
@@ -477,11 +593,13 @@ def main():
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
             f"episode={episode.get('title')}; source={source_used}; start={start:.1f}s; "
-            f"music={music_meta.get('title') or music_meta.get('attribution') or 'licensed track'}"
+            f"music={music_meta.get('title') or music_meta.get('attribution') or 'licensed track'}; "
+            f"selection_reason={reason}"
         )
     if output_path.exists():
         output_path.unlink()
-    temp_dir_obj.cleanup()
+
+
 
 
 if __name__ == "__main__":
