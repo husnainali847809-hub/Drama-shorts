@@ -44,3 +44,15 @@ jobs:
                   "details_url": item["details_url"],
               })
           PY
+
+      - name: Smoke-test mixed-content research and licensed image discovery
+        run: |
+          python - <<'PY'
+          from mixed_content.research import get_research, find_licensed_images
+          item = get_research("documentary", day_index=0)
+          print("Research topic:", item["title"], item["source_url"])
+          images = find_licensed_images(item["search_terms"], limit=3)
+          print("Reusable licensed visuals:", len(images))
+          for image in images:
+              print(image["title"], image["license_url"], image["page_url"])
+          PY
