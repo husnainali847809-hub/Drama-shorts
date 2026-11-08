@@ -132,7 +132,8 @@ def find_licensed_images(query, limit=3):
         except requests.RequestException as exc:
             log.warning("Wikimedia Commons search failed for %r: %s", term, exc)
     if not titles:
-        raise RuntimeError(f"No Wikimedia Commons image results for '{query}'.")
+        log.warning("No Wikimedia Commons results for %r; the video renderer will use an original fallback visual.", query)
+        return []
 
     found = []
     rejected = {"license": 0, "format": 0, "size": 0}
@@ -184,7 +185,8 @@ def find_licensed_images(query, limit=3):
     log.warning("Commons image search for %r: %d candidates; rejected=%s; reusable=%d.",
                 query, len(titles), rejected, len(found))
     log.info("Rejected license URL breakdown: %s", rejected_license_examples)
-    raise RuntimeError(
-        f"Only {len(found)} reusable images found for '{query}' after {len(titles)} Commons candidates. "
-        "Strict commercial-use license checks remain enabled; refusing unlicensed visuals."
-    )
+    if found:
+        log.info("Continuing with %d verified reusable image(s); original fallback visuals will fill any gaps.", len(found))
+    else:
+        log.warning("No verified reusable images found; an original topic graphic will be generated instead.")
+    return found
