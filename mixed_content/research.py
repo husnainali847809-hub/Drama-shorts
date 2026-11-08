@@ -14,23 +14,23 @@ MOVIES = [
 ]
 QUERIES = {
     "documentary": [
-        "space exploration scientific discovery", "ancient civilization history",
-        "wildlife conservation remarkable animal", "deep ocean discoveries",
-        "invention that changed the world", "volcano eruption science",
-        "human body remarkable biology", "famous archaeological discovery",
-        "solar system exploration", "natural wonder geography",
+        "James Webb Space Telescope", "Ancient Egypt",
+        "Great Barrier Reef", "Mariana Trench",
+        "Voyager 1", "Pompeii",
+        "Apollo 11", "Taj Mahal",
+        "Solar System", "Machu Picchu",
     ],
     "real_story": [
-        "survival story explorer", "remarkable historical biography",
-        "real life rescue story", "mountaineering survival story",
-        "famous humanitarian biography", "historical journey expedition",
-        "scientist life biography", "disaster survival account",
-        "women explorers biography", "extraordinary act of courage history",
+        "Ernest Shackleton", "Amelia Earhart",
+        "Apollo 13", "Juliane Koepcke",
+        "Nando Parrado", "Tenzing Norgay",
+        "Louis Zamperini", "Aron Ralston",
+        "Irena Sendler", "Viktor Frankl",
     ],
     "anime_style": [
-        "space exploration", "wildlife nature", "ancient mythology",
-        "underwater animals", "mountain adventure", "forest ecosystem",
-        "planetary science", "ocean exploration", "prehistoric animals",
+        "Northern lights", "Bengal tiger", "Amazon rainforest",
+        "Great white shark", "Mount Everest", "Deep sea",
+        "Saturn", "Milky Way", "Dinosaur",
         "northern lights natural phenomenon",
     ],
 }
@@ -102,24 +102,41 @@ def _license_url(ext):
     return match.group(1) if match else _clean(raw)
 
 def find_licensed_images(query, limit=3):
-    response = requests.get(COMMONS_API, params={
-        "action": "query", "format": "json", "generator": "search",
-        "gsrsearch": "filetype:bitmap " + query, "gsrnamespace": 6,
-        "gsrlimit": 30, "prop": "imageinfo", "iiprop": "url|extmetadata|size",
+    search = requests.get(COMMONS_API, params={
+        "action": "query", "format": "json", "list": "search",
+        "srnamespace": 6, "srsearch": query, "srlimit": 50,
+    }, headers=HEADERS, timeout=45)
+    search.raise_for_status()
+    titles = []
+    seen = set()
+    for item in search.json().get("query", {}).get("search", []):
+        title = item.get("title", "")
+        if title and title not in seen:
+            seen.add(title)
+            titles.append(title)
+    if not titles:
+        raise RuntimeError(f"No Wikimedia Commons image results for '{query}'.")
+    details = requests.get(COMMONS_API, params={
+        "action": "query", "format": "json", "prop": "imageinfo",
+        "titles": "|".join(titles[:50]),
+        "iiprop": "url|size|mime|extmetadata",
         "iiextmetadatalanguage": "en",
         "iiextmetadatafilter": "LicenseUrl|Artist|Credit|ObjectName|ImageDescription",
     }, headers=HEADERS, timeout=45)
-    response.raise_for_status()
-    pages = response.json().get("query", {}).get("pages", {})
+    details.raise_for_status()
+    pages = details.json().get("query", {}).get("pages", {})
     found = []
     for page in pages.values():
         info = (page.get("imageinfo") or [{}])[0]
         ext = info.get("extmetadata") or {}
         license_url = _license_url(ext)
         url = str(info.get("url") or "")
+        mime = str(info.get("mime") or "").lower()
         try:
             size = int(info.get("size") or 0)
         except (TypeError, ValueError):
+            continue
+        if not mime.startswith("image/"):
             continue
         if not url.startswith("https://upload.wikimedia.org/") or not license_is_allowed(license_url):
             continue
