@@ -66,15 +66,42 @@ Use original wording; no copied dialogue, screenplay, lyrics or long source pass
 Never invent facts beyond the supplied source. Original-story category must be fictional and use no known characters.
 """
     key = need("OPENROUTER_API_KEY")
-    models = [MODEL, "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen3-4b:free"]
+    models = [MODEL]
+    # Free model slugs change frequently. Discover currently listed $0 chat models
+    # instead of relying on retired hard-coded model IDs.
+    try:
+        catalog = requests.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+            timeout=30,
+        )
+        catalog.raise_for_status()
+        catalog_data = catalog.json().get("data", [])
+        free_models = []
+        for item in catalog_data:
+            pricing = item.get("pricing") or {}
+            try:
+                is_free = float(pricing.get("prompt", "1")) == 0 and float(pricing.get("completion", "1")) == 0
+            except (TypeError, ValueError):
+                is_free = False
+            if is_free and item.get("id") and item.get("id") != "openrouter/free":
+                free_models.append(item["id"])
+        # Prefer text-capable chat models and cap attempts to keep each run bounded.
+        preferred = [m for m in free_models if any(tag in m.lower() for tag in ("qwen", "llama", "gemma", "mistral", "deepseek"))]
+        models.extend((preferred + free_models)[:8])
+        log.info("Discovered %d currently free OpenRouter models; trying up to %d.", len(free_models), len(set(models)))
+    except Exception as exc:
+        log.warning("Could not refresh OpenRouter free-model catalog: %s", exc)
+        # Keep the router attempt; it may still be available even if catalog lookup fails.
     error = None
     for model in dict.fromkeys(models):
         try:
             response = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                headers={"Authorization": f"Bearer {key}", "Accept": "application/json",
+                         "Content-Type": "application/json",
                          "HTTP-Referer": "https://github.com/husnainali847809-hub/animals-ai-automation",
-                         "X-Title": "Hindi Mixed Content Factory"},
+                         "X-OpenRouter-Title": "Hindi Mixed Content Factory"},
                 json={"model": model, "messages": [
                     {"role": "system", "content": "You are a careful Hindi scriptwriter. Return JSON only."},
                     {"role": "user", "content": prompt}],
@@ -82,7 +109,8 @@ Never invent facts beyond the supplied source. Original-story category must be f
                     "response_format": {"type": "json_object"}},
                 timeout=90,
             )
-            response.raise_for_status()
+            if not response.ok:
+                raise RuntimeError(f"OpenRouter HTTP {response.status_code}: {response.text[:500]}")
             choices = response.json().get("choices") or []
             raw = (choices[0].get("message") or {}).get("content") if choices else ""
             if isinstance(raw, list):
