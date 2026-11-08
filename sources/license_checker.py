@@ -15,6 +15,10 @@ ALLOWED_LICENSES = {
     "http://creativecommons.org/licenses/by/3.0/",
     "https://creativecommons.org/licenses/by/4.0/",
     "http://creativecommons.org/licenses/by/4.0/",
+    # CC BY-SA 4.0 permits commercial reuse with attribution and ShareAlike.
+    # mixed_content/main.py already labels adapted videos under CC BY-SA 4.0.
+    "https://creativecommons.org/licenses/by-sa/4.0/",
+    "http://creativecommons.org/licenses/by-sa/4.0/",
 }
 
 def normalize_license(value: str) -> str:
@@ -24,7 +28,7 @@ def license_is_allowed(value: str) -> bool:
     return normalize_license(value) in {normalize_license(x) for x in ALLOWED_LICENSES}
 
 def attribution_required(value: str) -> bool:
-    return "/licenses/by/" in normalize_license(value)
+    return "/licenses/by/" in normalize_license(value) or "/licenses/by-sa/" in normalize_license(value)
 
 def license_label(value: str) -> str:
     normalized = normalize_license(value)
@@ -32,6 +36,9 @@ def license_label(value: str) -> str:
         return "Public Domain Mark 1.0"
     if "publicdomain/zero" in normalized:
         return "CC0 1.0"
+    if "/licenses/by-sa/" in normalized:
+        version = normalized.split("/licenses/by-sa/", 1)[1].strip("/")
+        return f"CC BY-SA {version}"
     if "/licenses/by/" in normalized:
         version = normalized.split("/licenses/by/", 1)[1].strip("/")
         return f"CC BY {version}"
