@@ -177,7 +177,7 @@ def render(images, voice_files, segments, category, output):
                 current = [word]
         if current:
             rows.append(" ".join(current))
-        subtitle.write_text("\\n".join(rows), encoding="utf-8")
+        subtitle.write_text("\n".join(rows), encoding="utf-8")
         seconds = duration(voice_files[i])
         clip = WORK / f"scene_{i + 1}.mp4"
         look = ("eq=saturation=1.55:contrast=1.10,unsharp=5:5:0.8:3:3:0.0"
