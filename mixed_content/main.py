@@ -198,7 +198,7 @@ def render(images, voice_files, segments, category, output):
             "-c:a", "pcm_s16le", str(music)])
     ffmpeg(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(silent), "-i", str(voice), "-i", str(music),
-            "-vf", "tpad=stop_mode=clone:stop_duration=12",
+            "-vf", "tpad=stop_mode=clone:stop_duration=30",
             "-filter_complex",
             "[1:a]volume=1.0[v];[2:a]volume=0.12[m];"
             "[v][m]amix=inputs=2:duration=longest:dropout_transition=2:normalize=0,"
