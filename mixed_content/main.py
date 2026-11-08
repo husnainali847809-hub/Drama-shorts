@@ -180,27 +180,68 @@ Never invent facts beyond the supplied source. Original-story category must be f
     raise RuntimeError(f"No free OpenRouter model returned a valid Hindi script: {error}")
 
 def download_images(items):
+    """Download reusable Commons images; one blocked URL must not abort a whole Reel."""
     WORK.mkdir(parents=True, exist_ok=True)
     paths = []
+    headers = {
+        "User-Agent": "HindiMixedContentFactory/1.1 (licensed educational video production; contact: repository owner)",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    }
+
     for i, item in enumerate(items, 1):
         path = WORK / f"visual_{i:02d}.jpg"
-        response = requests.get(item["url"], stream=True, timeout=(20, 60))
-        response.raise_for_status()
-        size = 0
-        with path.open("wb") as out:
-            for chunk in response.iter_content(512 * 1024):
-                if not chunk:
-                    continue
-                size += len(chunk)
-                if size > 20 * 1024 * 1024:
-                    raise RuntimeError("A Commons image exceeded 20 MB.")
-                out.write(chunk)
-        if size >= 2048:
-            paths.append(path)
-        else:
+        temp_path = WORK / f"visual_{i:02d}.part"
+        source_url = str(item.get("url") or "").strip()
+        page_url = str(item.get("page_url") or "https://commons.wikimedia.org/").strip()
+        if not source_url.startswith("https://upload.wikimedia.org/"):
+            log.warning("Skipping Commons visual %d: unexpected image host.", i)
+            continue
+
+        # Commons metadata URLs sometimes include tracking query parameters. Try
+        # the original URL first, then the clean file URL if the CDN rejects it.
+        from urllib.parse import urlsplit, urlunsplit
+        parsed = urlsplit(source_url)
+        clean_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        candidates = list(dict.fromkeys((source_url, clean_url)))
+        downloaded = False
+
+        for candidate in candidates:
+            try:
+                request_headers = {**headers, "Referer": page_url}
+                with requests.get(candidate, headers=request_headers, stream=True,
+                                  timeout=(20, 60), allow_redirects=True) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+                    if content_type and not content_type.startswith("image/"):
+                        raise ValueError(f"Unexpected content type: {content_type}")
+
+                    size = 0
+                    with temp_path.open("wb") as out:
+                        for chunk in response.iter_content(512 * 1024):
+                            if not chunk:
+                                continue
+                            size += len(chunk)
+                            if size > 20 * 1024 * 1024:
+                                raise ValueError("Commons image exceeded the 20 MB limit.")
+                            out.write(chunk)
+
+                if size < 2048:
+                    raise ValueError(f"Downloaded image is too small ({size} bytes).")
+                temp_path.replace(path)
+                paths.append(path)
+                downloaded = True
+                break
+            except (requests.RequestException, OSError, ValueError) as exc:
+                temp_path.unlink(missing_ok=True)
+                log.warning("Commons image %d download failed from %s: %s",
+                            i, "clean URL" if candidate == clean_url else "metadata URL", exc)
+
+        if not downloaded:
             path.unlink(missing_ok=True)
+            log.warning("Skipping unavailable Commons image %d; other images/fallback visuals will be used.", i)
+
     if len(paths) < len(items):
-        log.warning("Downloaded %d of %d available verified Commons visuals; remaining scenes will reuse available visuals or fallback art.",
+        log.warning("Downloaded %d of %d verified Commons visuals; remaining scenes will reuse available visuals or fallback art.",
                     len(paths), len(items))
     return paths
 
@@ -368,7 +409,12 @@ def run_once():
     voice_duration = render(images, voice_files, script["segments"], category, output)
     if not output.is_file() or output.stat().st_size < 2_000_000:
         raise RuntimeError("Quality gate failed: output file is missing or too small.")
-    credits = [f"{x['creator']} — {x['title']} ({x['license_url']}) {x['page_url']}" for x in images_meta]
+    used_image_meta = [
+        images_meta[int(path.stem.rsplit("_", 1)[1]) - 1]
+        for path in images if path.name.startswith("visual_")
+    ]
+    credits = [f"{x['creator']} — {x['title']} ({x['license_url']}) {x['page_url']}"
+               for x in used_image_meta]
     caption = (script["caption"] + f"\n\nFormat: {LABELS[category]} | Hindi narration | Original editing and music."
                + (f"\nText: Wikipedia contributors, {research['title']} — {research['source_url']} (CC BY-SA 4.0). This adapted script/video is shared under CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/"
                   if research.get("source_url") else "\nStory: Original AI-generated fiction.")
