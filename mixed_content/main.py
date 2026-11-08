@@ -158,7 +158,7 @@ def render(images, voice_files, segments, category, output):
     ffmpeg(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat",
             "-safe", "0", "-i", str(audio_list), "-c:a", "libmp3lame", "-q:a", "3", str(voice)])
     voice_duration = duration(voice)
-    if not 72 <= voice_duration <= 95:
+    if not 72 <= voice_duration <= 86.5:
         raise RuntimeError(f"Voice duration {voice_duration:.1f}s is outside production limits.")
 
     font = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
@@ -248,7 +248,7 @@ def run_once():
         if db.execute("SELECT 1 FROM mixed_content_history WHERE topic_key=?", (key,)).fetchone():
             raise RuntimeError("Duplicate topic blocked; nothing was published.")
     script = make_script(research, category)
-    images_meta = find_licensed_images(research["search_terms"], limit=5)
+    images_meta = find_licensed_images(research["search_terms"], limit=3)
     images = download_images(images_meta)
     voice_files = asyncio.run(create_voice(script["segments"]))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -258,11 +258,13 @@ def run_once():
         raise RuntimeError("Quality gate failed: output file is missing or too small.")
     credits = [f"{x['creator']} — {x['title']} ({x['license_url']}) {x['page_url']}" for x in images_meta]
     caption = (script["caption"] + f"\n\nFormat: {LABELS[category]} | Hindi narration | Original editing and music."
-               + f"\nText source: {research.get('source_url') or 'Original AI-generated story'}"
-               + ("\nSource text license: CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/" if research.get("source_url") else "")
+               + (f"\nText: Wikipedia contributors, {research['title']} — {research['source_url']} (CC BY-SA 4.0). This adapted script/video is shared under CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/"
+                  if research.get("source_url") else "\nStory: Original AI-generated fiction.")
                + "\nVisual credits: " + " | ".join(credits))
+    if len(caption) > 1800:
+        raise RuntimeError("Attribution text exceeds Buffer caption limit; refusing to publish without full credits.")
     public_url = upload(output, category)
-    post = queue_facebook_reel(public_url, caption[:1800])
+    post = queue_facebook_reel(public_url, caption)
     with sqlite3.connect(ROOT / "history.sqlite3") as db:
         db.execute("INSERT OR REPLACE INTO mixed_content_history(topic_key,category,title,post_id) VALUES(?,?,?,?)",
                    (f"{category}:{research['title'].casefold()}", category, research["title"], post["id"]))
