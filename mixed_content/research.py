@@ -1,7 +1,10 @@
 import html
+import logging
 import re
 import requests
 from sources.license_checker import license_is_allowed
+
+log = logging.getLogger(__name__)
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
