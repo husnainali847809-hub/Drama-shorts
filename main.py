@@ -100,7 +100,13 @@ def discover_episode(channel_url, seen_ids):
             continue
         url = entry.get("webpage_url") or entry.get("url")
         if url and not str(url).startswith("http"):
-            url = f"https://www.youtube.com/watch?v={url}"
+            if "facebook.com" in channel_url or "fb.watch" in channel_url:
+                if str(url).startswith("/"):
+                    url = "https://www.facebook.com" + str(url)
+                else:
+                    url = f"https://www.facebook.com/watch/?v={url}"
+            else:
+                url = f"https://www.youtube.com/watch?v={url}"
         if not url:
             continue
         return {"id": video_id, "url": url, "title": entry.get("title") or "Pakistani drama episode"}
