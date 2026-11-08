@@ -13,9 +13,26 @@ MOVIES = [
     "The Batman (film)", "Top Gun: Maverick", "RRR",
 ]
 QUERIES = {
-    "documentary": ["space exploration scientific discovery", "ancient civilization history", "wildlife conservation remarkable animal"],
-    "real_story": ["survival story explorer", "remarkable historical biography", "real life rescue story"],
-    "anime_style": ["space exploration", "wildlife nature", "ancient mythology"],
+    "documentary": [
+        "space exploration scientific discovery", "ancient civilization history",
+        "wildlife conservation remarkable animal", "deep ocean discoveries",
+        "invention that changed the world", "volcano eruption science",
+        "human body remarkable biology", "famous archaeological discovery",
+        "solar system exploration", "natural wonder geography",
+    ],
+    "real_story": [
+        "survival story explorer", "remarkable historical biography",
+        "real life rescue story", "mountaineering survival story",
+        "famous humanitarian biography", "historical journey expedition",
+        "scientist life biography", "disaster survival account",
+        "women explorers biography", "extraordinary act of courage history",
+    ],
+    "anime_style": [
+        "space exploration", "wildlife nature", "ancient mythology",
+        "underwater animals", "mountain adventure", "forest ecosystem",
+        "planetary science", "ocean exploration", "prehistoric animals",
+        "northern lights natural phenomenon",
+    ],
 }
 
 def _clean(value):
@@ -59,13 +76,14 @@ def get_research(category, day_index=0):
         return item
     if category == "original_story":
         return {
-            "title": "An Original Hindi Short Story",
+            "title": f"Original Hindi Short Story {day_index}",
             "source_text": "Create a completely fictional, family-friendly short story. Theme: courage, kindness, curiosity, and a surprising but uplifting ending. Do not use copyrighted characters or existing franchise worlds.",
             "source_url": "",
             "source_license": "Original AI-generated story",
             "search_terms": "nature friendship cinematic landscape",
         }
-    query = QUERIES.get(category, QUERIES["documentary"])[day_index % len(QUERIES.get(category, QUERIES["documentary"]))]
+    options = QUERIES.get(category, QUERIES["documentary"])
+    query = options[day_index % len(options)]
     item = _wiki_page(query)
     item["search_terms"] = item["title"] + " " + query
     item["editorial_angle"] = {
@@ -80,7 +98,7 @@ def _license_url(ext):
     match = re.search(r"""href=["']([^"']+)["']""", raw, flags=re.I)
     return match.group(1) if match else _clean(raw)
 
-def find_licensed_images(query, limit=6):
+def find_licensed_images(query, limit=3):
     response = requests.get(COMMONS_API, params={
         "action": "query", "format": "json", "generator": "search",
         "gsrsearch": "filetype:bitmap " + query, "gsrnamespace": 6,
