@@ -6,6 +6,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cloudinary
@@ -81,11 +83,77 @@ def save_history(history, video_id):
     STATE_FILE.write_text(json.dumps({"video_ids": ids[-1000:]}, indent=2), encoding="utf-8")
 
 
+def discover_youtube_latest(channel_url, seen_ids):
+    # Use YouTube's channel RSS feed instead of crawling the channel's full
+    # uploads tab, which can contain thousands of historical videos.
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+    }
+    channel_match = re.search(r"/channel/(UC[a-zA-Z0-9_-]{20,})", channel_url)
+    channel_id = channel_match.group(1) if channel_match else None
+
+    if not channel_id:
+        response = requests.get(channel_url.rstrip("/"), headers=headers, timeout=25)
+        response.raise_for_status()
+        patterns = [
+            r'"channelId"\s*:\s*"(UC[a-zA-Z0-9_-]{20,})"',
+            r'"externalId"\s*:\s*"(UC[a-zA-Z0-9_-]{20,})"',
+            r'<meta[^>]+itemprop=["\']channelId["\'][^>]+content=["\'](UC[a-zA-Z0-9_-]{20,})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, response.text)
+            if match:
+                channel_id = match.group(1)
+                break
+    if not channel_id:
+        raise RuntimeError(f"Could not resolve YouTube channel ID from {channel_url}")
+
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    feed_response = requests.get(feed_url, headers=headers, timeout=25)
+    feed_response.raise_for_status()
+    root = ET.fromstring(feed_response.content)
+    ns = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "yt": "http://www.youtube.com/xml/schemas/2015",
+    }
+    max_age_days = max(1, int(os.getenv("DRAMA_MAX_AGE_DAYS", "30")))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    candidates = []
+
+    for entry in root.findall("atom:entry", ns):
+        video_id = (entry.findtext("yt:videoId", default="", namespaces=ns) or "").strip()
+        title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+        published_text = (entry.findtext("atom:published", default="", namespaces=ns) or "").strip()
+        if not video_id or video_id in seen_ids or not published_text:
+            continue
+        try:
+            published = datetime.fromisoformat(published_text.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if published < cutoff:
+            continue
+        candidates.append((published, {
+            "id": video_id,
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "title": title or "Latest Pakistani drama episode",
+        }))
+
+    if not candidates:
+        log(f"No unseen YouTube uploads from the last {max_age_days} days at {channel_url}.")
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
 def discover_episode(channel_url, seen_ids):
+    if "youtube.com/" in channel_url or "youtu.be/" in channel_url:
+        return discover_youtube_latest(channel_url, seen_ids)
+
+    # Facebook sources retain the existing yt-dlp public-access workflow.
     opts = {
         "quiet": True, "no_warnings": True, "extract_flat": "in_playlist",
-        "playlistend": 20, "ignoreerrors": True, "skip_download": True,
-        "extractor_retries": 2, "socket_timeout": 30,
+        "playlistend": 20, "lazy_playlist": True, "ignoreerrors": True,
+        "skip_download": True, "extractor_retries": 2, "socket_timeout": 30,
     }
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(channel_url, download=False)
@@ -105,8 +173,6 @@ def discover_episode(channel_url, seen_ids):
                     url = "https://www.facebook.com" + str(url)
                 else:
                     url = f"https://www.facebook.com/watch/?v={url}"
-            else:
-                url = f"https://www.youtube.com/watch?v={url}"
         if not url:
             continue
         return {"id": video_id, "url": url, "title": entry.get("title") or "Pakistani drama episode"}
