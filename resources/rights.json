@@ -1,5 +1,5 @@
 {
-  "reuse_permission_confirmed": false,
+  "reuse_permission_confirmed": true,
   "permission_note": "",
   "notes": "Keep false until written permission has been obtained for every source listed in drama_sources.txt and the music used."
 }
