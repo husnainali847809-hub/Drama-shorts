@@ -84,7 +84,11 @@ Never invent facts beyond the supplied source. Original-story category must be f
                 is_free = float(pricing.get("prompt", "1")) == 0 and float(pricing.get("completion", "1")) == 0
             except (TypeError, ValueError):
                 is_free = False
-            if is_free and item.get("id") and item.get("id") != "openrouter/free":
+            architecture = item.get("architecture") or {}
+            modality = str(architecture.get("modality") or "").lower()
+            # Avoid image/audio-only entries; the script writer needs text input/output.
+            if (is_free and item.get("id") and item.get("id") != "openrouter/free"
+                    and (not modality or "text" in modality)):
                 free_models.append(item["id"])
         # Prefer text-capable chat models and cap attempts to keep each run bounded.
         preferred = [m for m in free_models if any(tag in m.lower() for tag in ("qwen", "llama", "gemma", "mistral", "deepseek"))]
@@ -105,13 +109,18 @@ Never invent facts beyond the supplied source. Original-story category must be f
                 json={"model": model, "messages": [
                     {"role": "system", "content": "You are a careful Hindi scriptwriter. Return JSON only."},
                     {"role": "user", "content": prompt}],
-                    "temperature": 0.65, "max_tokens": 1800,
-                    "response_format": {"type": "json_object"}},
-                timeout=90,
+                    "temperature": 0.65, "max_tokens": 2200},
+                timeout=60,
             )
             if not response.ok:
-                raise RuntimeError(f"OpenRouter HTTP {response.status_code}: {response.text[:500]}")
-            choices = response.json().get("choices") or []
+                body = (response.text or "").strip() or "<empty response body>"
+                raise RuntimeError(f"OpenRouter HTTP {response.status_code}: {body[:500]}")
+            try:
+                payload = response.json()
+            except ValueError:
+                body = (response.text or "").strip() or "<empty response body>"
+                raise ValueError(f"OpenRouter returned non-JSON response: {body[:200]}")
+            choices = payload.get("choices") or []
             raw = (choices[0].get("message") or {}).get("content") if choices else ""
             if isinstance(raw, list):
                 raw = "".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
