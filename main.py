@@ -9,6 +9,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import cloudinary
 import cloudinary.uploader
@@ -41,10 +42,12 @@ def read_sources():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        if not line.startswith(("https://www.youtube.com/", "https://youtube.com/",
-                                "https://m.youtube.com/", "https://www.facebook.com/",
-                                "https://facebook.com/", "https://fb.watch/")):
-            raise RuntimeError(f"Unsupported source URL in {SOURCES_FILE.name}: {line}")
+        parsed = urlparse(line)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise RuntimeError(
+                f"Source must be a complete http/https video or channel URL in "
+                f"{SOURCES_FILE.name}: {line}"
+            )
         links.append(line)
     return list(dict.fromkeys(links))
 
@@ -145,37 +148,54 @@ def discover_youtube_latest(channel_url, seen_ids):
     return candidates[0][1]
 
 
-def discover_episode(channel_url, seen_ids):
-    if "youtube.com/" in channel_url or "youtu.be/" in channel_url:
-        return discover_youtube_latest(channel_url, seen_ids)
+def discover_episode(source_url, seen_ids):
+    lower_url = source_url.lower()
+    is_youtube = any(host in lower_url for host in ("youtube.com/", "youtu.be/"))
+    is_youtube_channel = is_youtube and any(
+        marker in lower_url for marker in ("/@", "/channel/", "/c/", "/user/")
+    )
+    if is_youtube_channel:
+        return discover_youtube_latest(source_url, seen_ids)
 
-    # Facebook sources retain the existing yt-dlp public-access workflow.
+    # For individual video links and other supported video platforms, let
+    # yt-dlp select the matching public extractor. This includes supported
+    # Facebook video/reel URLs and direct media URLs. Channel-wide scanning
+    # is intentionally not attempted for generic websites.
     opts = {
-        "quiet": True, "no_warnings": True, "extract_flat": "in_playlist",
+        "quiet": True, "no_warnings": True, "extract_flat": False,
         "playlistend": 20, "lazy_playlist": True, "ignoreerrors": True,
         "skip_download": True, "extractor_retries": 2, "socket_timeout": 30,
+        "noplaylist": True,
     }
     with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(channel_url, download=False)
+        info = ydl.extract_info(source_url, download=False)
     entries = info.get("entries") if isinstance(info, dict) else None
     if entries is None and isinstance(info, dict):
         entries = [info]
+
     for entry in (entries or []):
         if not entry:
             continue
-        video_id = str(entry.get("id") or entry.get("url") or "").strip()
+        video_id = str(entry.get("id") or entry.get("display_id") or entry.get("url") or "").strip()
         if not video_id or video_id in seen_ids:
             continue
-        url = entry.get("webpage_url") or entry.get("url")
-        if url and not str(url).startswith("http"):
-            if "facebook.com" in channel_url or "fb.watch" in channel_url:
+        url = entry.get("webpage_url") or entry.get("original_url") or entry.get("url")
+        if not url:
+            continue
+        if not str(url).startswith("http"):
+            extractor = str(entry.get("extractor_key") or "").lower()
+            if extractor == "facebook":
                 if str(url).startswith("/"):
                     url = "https://www.facebook.com" + str(url)
                 else:
                     url = f"https://www.facebook.com/watch/?v={url}"
-        if not url:
-            continue
-        return {"id": video_id, "url": url, "title": entry.get("title") or "Pakistani drama episode"}
+            else:
+                continue
+        return {
+            "id": video_id,
+            "url": url,
+            "title": entry.get("title") or "Drama episode",
+        }
     return None
 
 
@@ -436,6 +456,8 @@ def main():
         temp_dir_obj.cleanup()
         raise RuntimeError(
             "No configured source could provide a new downloadable episode. "
+            "Use a direct public video/reel URL or a channel URL supported by yt-dlp; "
+            "some share/profile URLs and login-protected videos are not downloadable here. "
             + " | ".join(source_errors[:5])
         )
 
