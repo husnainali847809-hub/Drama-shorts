@@ -124,9 +124,25 @@ Never invent facts beyond the supplied source. Original-story category must be f
             raw = (choices[0].get("message") or {}).get("content") if choices else ""
             if isinstance(raw, list):
                 raw = "".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
-            raw = str(raw or "").strip()
-            raw = raw.replace(chr(96) * 3 + "json", "").replace(chr(96) * 3, "").strip()
-            result = json.loads(raw)
+            if isinstance(raw, list):
+                raw = "".join(
+                    str(part.get("text", "")) for part in raw if isinstance(part, dict)
+                )
+            raw = str(raw or "").strip().lstrip("\\ufeff")
+            if not raw:
+                raise ValueError("OpenRouter returned empty message content.")
+            raw = re.sub(r"^\x60{3}(?:json)?\\s*|\\s*\x60{3}$", "", raw, flags=re.I).strip()
+            decoder = json.JSONDecoder()
+            result = None
+            for position, char in enumerate(raw):
+                if char == "{":
+                    try:
+                        result, _ = decoder.raw_decode(raw[position:])
+                        break
+                    except json.JSONDecodeError:
+                        continue
+            if not isinstance(result, dict):
+                raise ValueError("Model response did not contain a valid JSON object.")
             segments = result.get("segments")
             if not isinstance(segments, list) or len(segments) != 5:
                 raise ValueError("AI must return exactly five narration segments.")
