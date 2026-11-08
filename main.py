@@ -405,7 +405,7 @@ def classify_stream_candidates(stream, starts, work_dir):
     raw = payload["choices"][0]["message"]["content"]
     if isinstance(raw, list):
         raw = " ".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
-    match = re.search(r"\\{.*\\}", str(raw), re.S)
+    match = re.search(r"\{.*\}", str(raw), re.S)
     if not match:
         raise RuntimeError(f"AI scene classifier returned no JSON: {str(raw)[:300]}")
     result = json.loads(match.group(0))
