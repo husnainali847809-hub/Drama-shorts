@@ -102,55 +102,82 @@ def _license_url(ext):
     return match.group(1) if match else _clean(raw)
 
 def find_licensed_images(query, limit=3):
-    search = requests.get(COMMONS_API, params={
-        "action": "query", "format": "json", "list": "search",
-        "srnamespace": 6, "srsearch": query, "srlimit": 50,
-    }, headers=HEADERS, timeout=45)
-    search.raise_for_status()
+    # Commons search can be sparse for long/duplicated phrases. Try a few
+    # progressively broader searches, while keeping the same strict license gate.
+    query = _clean(query)
+    variants = []
+    for candidate in (query, re.sub(r"\\b(\\w+)(?:\\s+\\1\\b)+", r"\\1", query, flags=re.I),
+                      " ".join(query.split()[:4])):
+        candidate = _clean(candidate)
+        if candidate and candidate.casefold() not in {x.casefold() for x in variants}:
+            variants.append(candidate)
+
     titles = []
     seen = set()
-    for item in search.json().get("query", {}).get("search", []):
-        title = item.get("title", "")
-        if title and title not in seen:
-            seen.add(title)
-            titles.append(title)
+    for term in variants:
+        try:
+            search = requests.get(COMMONS_API, params={
+                "action": "query", "format": "json", "list": "search",
+                "srnamespace": 6, "srsearch": term, "srlimit": 50,
+            }, headers=HEADERS, timeout=45)
+            search.raise_for_status()
+            for item in search.json().get("query", {}).get("search", []):
+                title = item.get("title", "")
+                if title and title not in seen:
+                    seen.add(title)
+                    titles.append(title)
+        except requests.RequestException as exc:
+            log.warning("Wikimedia Commons search failed for %r: %s", term, exc)
     if not titles:
         raise RuntimeError(f"No Wikimedia Commons image results for '{query}'.")
-    details = requests.get(COMMONS_API, params={
-        "action": "query", "format": "json", "prop": "imageinfo",
-        "titles": "|".join(titles[:50]),
-        "iiprop": "url|size|mime|extmetadata",
-        "iiextmetadatalanguage": "en",
-        "iiextmetadatafilter": "LicenseUrl|Artist|Credit|ObjectName|ImageDescription",
-    }, headers=HEADERS, timeout=45)
-    details.raise_for_status()
-    pages = details.json().get("query", {}).get("pages", {})
+
     found = []
-    for page in pages.values():
-        info = (page.get("imageinfo") or [{}])[0]
-        ext = info.get("extmetadata") or {}
-        license_url = _license_url(ext)
-        url = str(info.get("url") or "")
-        mime = str(info.get("mime") or "").lower()
-        try:
-            size = int(info.get("size") or 0)
-        except (TypeError, ValueError):
-            continue
-        if not mime.startswith("image/"):
-            continue
-        if not url.startswith("https://upload.wikimedia.org/") or not license_is_allowed(license_url):
-            continue
-        if size <= 0 or size > 20 * 1024 * 1024:
-            continue
-        creator = _clean((ext.get("Artist") or {}).get("value") or (ext.get("Credit") or {}).get("value") or "Unknown")
-        title = _clean((ext.get("ObjectName") or {}).get("value") or page.get("title", "Wikimedia Commons image"))
-        found.append({
-            "url": url, "title": title, "creator": creator,
-            "license_url": license_url,
-            "page_url": "https://commons.wikimedia.org/wiki/" + requests.utils.quote(page.get("title", "").replace(" ", "_"), safe=":"),
-        })
-        if len(found) >= limit:
-            break
-    if len(found) < 3:
-        raise RuntimeError(f"Only {len(found)} reusable images found for '{query}'. Refusing to create a low-quality or unlicensed video.")
-    return found
+    rejected = {"license": 0, "format": 0, "size": 0}
+    # Fetch metadata in batches to avoid oversized API requests.
+    for offset in range(0, len(titles), 50):
+        batch = titles[offset:offset + 50]
+        details = requests.get(COMMONS_API, params={
+            "action": "query", "format": "json", "prop": "imageinfo",
+            "titles": "|".join(batch),
+            "iiprop": "url|size|mime|extmetadata",
+            "iiextmetadatalanguage": "en",
+            "iiextmetadatafilter": "LicenseUrl|Artist|Credit|ObjectName|ImageDescription",
+        }, headers=HEADERS, timeout=45)
+        details.raise_for_status()
+        pages = details.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            info = (page.get("imageinfo") or [{}])[0]
+            ext = info.get("extmetadata") or {}
+            license_url = _license_url(ext)
+            url = str(info.get("url") or "")
+            mime = str(info.get("mime") or "").lower()
+            try:
+                size = int(info.get("size") or 0)
+            except (TypeError, ValueError):
+                rejected["size"] += 1
+                continue
+            if not mime.startswith("image/") or not url.startswith("https://upload.wikimedia.org/"):
+                rejected["format"] += 1
+                continue
+            if not license_is_allowed(license_url):
+                rejected["license"] += 1
+                continue
+            if size <= 0 or size > 20 * 1024 * 1024:
+                rejected["size"] += 1
+                continue
+            creator = _clean((ext.get("Artist") or {}).get("value") or (ext.get("Credit") or {}).get("value") or "Unknown")
+            title = _clean((ext.get("ObjectName") or {}).get("value") or page.get("title", "Wikimedia Commons image"))
+            found.append({
+                "url": url, "title": title, "creator": creator,
+                "license_url": license_url,
+                "page_url": "https://commons.wikimedia.org/wiki/" + requests.utils.quote(page.get("title", "").replace(" ", "_"), safe=":"),
+            })
+            if len(found) >= limit:
+                log.info("Found %d reusable Wikimedia Commons images using search variants %s.", len(found), variants)
+                return found
+    log.warning("Commons image search for %r: %d candidates; rejected=%s; reusable=%d.",
+                query, len(titles), rejected, len(found))
+    raise RuntimeError(
+        f"Only {len(found)} reusable images found for '{query}' after {len(titles)} Commons candidates. "
+        "Strict commercial-use license checks remain enabled; refusing unlicensed visuals."
+    )
