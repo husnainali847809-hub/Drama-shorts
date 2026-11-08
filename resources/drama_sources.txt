@@ -1,14 +1,9 @@
-# Add ONE authorized YouTube channel or Facebook Page URL per line.
-# Paste links only after the rights holder has given you permission to edit and repost clips.
-# Empty slots are intentional; no source will be downloaded until you add links.
-#
-# YouTube channel slot 1:
-#
-# YouTube channel slot 2:
-#
-# YouTube channel slot 3:
-#
-# Facebook Page slot 1:
-#
-# Facebook Page slot 2:
-#
+# YouTube Channels
+https://youtube.com/@expressentertainment
+https://youtube.com/@greenentertainmenttv
+https://youtube.com/@humtv
+
+# Facebook Pages
+https://www.facebook.com/share/1HwFMcHfsk/
+https://www.facebook.com/share/1DbJnVdPNe/
+https://www.facebook.com/share/1CXauypvxL/
