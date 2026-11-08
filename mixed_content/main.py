@@ -168,7 +168,16 @@ def render(images, voice_files, segments, category, output):
     for i, line in enumerate(segments):
         image = images[i % len(images)]
         subtitle = WORK / f"caption_{i + 1}.txt"
-        subtitle.write_text(line, encoding="utf-8")
+        words = line.split()
+        rows, current = [], []
+        for word in words:
+            current.append(word)
+            if len(" ".join(current)) > 34:
+                rows.append(" ".join(current[:-1]))
+                current = [word]
+        if current:
+            rows.append(" ".join(current))
+        subtitle.write_text("\\n".join(rows), encoding="utf-8")
         seconds = duration(voice_files[i])
         clip = WORK / f"scene_{i + 1}.mp4"
         look = ("eq=saturation=1.55:contrast=1.10,unsharp=5:5:0.8:3:3:0.0"
