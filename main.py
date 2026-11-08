@@ -114,27 +114,58 @@ def discover_episode(channel_url, seen_ids):
 
 
 def download_episode(url, destination):
-    opts = {
-        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-        "merge_output_format": "mp4",
-        "outtmpl": str(destination),
-        "noplaylist": True,
-        "quiet": False,
-        "no_warnings": True,
-        "retries": 2,
-        "fragment_retries": 2,
-        "socket_timeout": 45,
-    }
-    with YoutubeDL(opts) as ydl:
-        result = ydl.extract_info(url, download=True)
-    actual = Path(ydl.prepare_filename(result))
-    if not actual.exists():
-        merged = actual.with_suffix(".mp4")
-        if merged.exists():
-            actual = merged
-    if not actual.exists() or actual.stat().st_size < 1_000_000:
-        raise RuntimeError("Episode download did not produce a usable video. This system does not bypass login, DRM, or platform restrictions.")
-    return actual, result
+    # Try sensible quality/format fallbacks. No browser cookies or login bypass.
+    format_choices = [
+        "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "best[height<=720]/best",
+        "best",
+    ]
+    failures = []
+    for format_choice in format_choices:
+        opts = {
+            "format": format_choice,
+            "merge_output_format": "mp4",
+            "outtmpl": str(destination),
+            "noplaylist": True,
+            "quiet": False,
+            "no_warnings": False,
+            "retries": 5,
+            "fragment_retries": 5,
+            "extractor_retries": 5,
+            "file_access_retries": 3,
+            "socket_timeout": 60,
+            "concurrent_fragment_downloads": 1,
+            "continuedl": True,
+            "overwrites": True,
+            "ignoreerrors": False,
+            "cachedir": False,
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                result = ydl.extract_info(url, download=True)
+                if not result:
+                    raise RuntimeError("yt-dlp returned no episode metadata.")
+                actual = Path(ydl.prepare_filename(result))
+            if not actual.exists():
+                merged = actual.with_suffix(".mp4")
+                if merged.exists():
+                    actual = merged
+            if actual.exists() and actual.stat().st_size >= 1_000_000:
+                return actual, result
+            raise RuntimeError("Download finished without a usable video file.")
+        except Exception as exc:
+            message = str(exc)
+            if "Sign in to confirm you're not a bot" in message or "confirm you’re not a bot" in message:
+                failures.append("YouTube temporarily requires account verification for this video.")
+            elif "Requested format is not available" in message:
+                failures.append("Requested quality is unavailable; trying a lower format.")
+            else:
+                failures.append(message[:240])
+    raise RuntimeError(
+        "All normal yt-dlp download attempts failed: " + " | ".join(failures)
+        + ". If YouTube requires sign-in/verification, this runner cannot guarantee access; "
+          "use a source that grants authorized public download access or provide an authorized video file."
+    )
 
 
 def candidate_starts(video_path):
@@ -311,22 +342,39 @@ def main():
     history = read_history()
     episode = None
     source_used = None
+    episode_path = None
     source_errors = []
-    for source in sources:
+    temp_dir_obj = tempfile.TemporaryDirectory(prefix="drama-clip-")
+    temp_dir = temp_dir_obj.name
+    for source_index, source in enumerate(sources):
         try:
             found = discover_episode(source, set(history["video_ids"]))
-            if found:
-                episode, source_used = found, source
-                break
+            if not found:
+                log(f"No unseen episode found at source {source_index + 1}; checking next source.")
+                continue
+            source_template = Path(temp_dir) / f"episode_{source_index}.%(ext)s"
+            try:
+                downloaded_path, metadata = download_episode(found["url"], source_template)
+            except Exception as download_error:
+                source_errors.append(f"{source}: download failed: {download_error}")
+                log(f"Source {source_index + 1} download failed; trying the next configured source.")
+                continue
+            episode = found
+            episode_path = downloaded_path
+            source_used = source
+            break
         except Exception as exc:
             source_errors.append(f"{source}: {exc}")
-    if not episode:
-        raise RuntimeError("No new episode found in configured sources. " + " | ".join(source_errors[:3]))
+            log(f"Source {source_index + 1} could not be checked; trying the next configured source.")
+    if not episode or not episode_path:
+        temp_dir_obj.cleanup()
+        raise RuntimeError(
+            "No configured source could provide a new downloadable episode. "
+            + " | ".join(source_errors[:5])
+        )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="drama-clip-") as temp_dir:
-        source_template = Path(temp_dir) / "episode.%(ext)s"
-        episode_path, metadata = download_episode(episode["url"], source_template)
+    with tempfile.TemporaryDirectory(prefix="drama-work-") as work_dir:
         starts, duration = candidate_starts(episode_path)
         if not starts:
             raise RuntimeError("No usable scene windows were detected.")
@@ -345,6 +393,7 @@ def main():
         )
     if output_path.exists():
         output_path.unlink()
+    temp_dir_obj.cleanup()
 
 
 if __name__ == "__main__":
