@@ -15,10 +15,6 @@ ALLOWED_LICENSES = {
     "http://creativecommons.org/licenses/by/3.0/",
     "https://creativecommons.org/licenses/by/4.0/",
     "http://creativecommons.org/licenses/by/4.0/",
-    # CC BY-SA 4.0 permits commercial reuse with attribution and ShareAlike.
-    # mixed_content/main.py already labels adapted videos under CC BY-SA 4.0.
-    "https://creativecommons.org/licenses/by-sa/4.0/",
-    "http://creativecommons.org/licenses/by-sa/4.0/",
 }
 
 def normalize_license(value: str) -> str:
