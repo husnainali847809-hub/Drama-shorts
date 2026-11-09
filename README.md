@@ -8,6 +8,12 @@ Open `resources/drama_sources.txt` and paste one YouTube channel URL or Facebook
 
 The system checks configured sources for recent uploads. YouTube channel feeds are supported through yt-dlp's normal public access. Facebook links may work only when the page/video is publicly accessible through yt-dlp. The system does not use cookies, bypass sign-in, DRM, private content, or platform restrictions.
 
+## 1A. Discover local Pakistani drama upload channels
+
+The scheduled workflow also runs `discover_local_sources.py` against `resources/discovery_sources.txt`. This list contains candidate Urdu/Pakistani drama upload channels beyond the major broadcasters. The scanner reads public YouTube channel feeds and writes recent uploads (last 30 days) to `output/local_channel_discoveries.csv`, which is included in the workflow artifact.
+
+This is discovery only: it does not download those videos or add them to the reposting queue. Channel handles and upload availability can change; inspect the CSV and verify the uploader/source before using any footage.
+
 ## 2. Confirm reuse rights
 
 Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until you have permission to download, edit, and repost clips from every listed source. After you receive permission, set it to `true` and add a short reference to the written permission in `permission_note`.
