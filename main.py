@@ -149,8 +149,122 @@ def discover_youtube_latest(channel_url, seen_ids):
     return candidates[0][1]
 
 
+def discover_facebook_latest(page_url, seen_ids):
+    """
+    Discover recent videos from an authorized Facebook Page through Meta's
+    Graph API. The API lists candidate posts; yt-dlp is still used only for
+    ordinary, permitted access to the selected public video permalink.
+    """
+    config_file = ROOT / "resources" / "facebook_pages.json"
+    if not config_file.exists():
+        raise RuntimeError(
+            "Missing resources/facebook_pages.json. Add each Facebook Page URL and Page ID."
+        )
+    try:
+        pages = json.loads(config_file.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        raise RuntimeError(f"Could not read Facebook Page config: {exc}") from exc
+
+    normalized_source = page_url.rstrip("/").lower()
+    page = next(
+        (
+            item for item in pages
+            if str(item.get("page_url", "")).rstrip("/").lower() == normalized_source
+        ),
+        None,
+    )
+    if not page:
+        raise RuntimeError(
+            f"No Facebook Page ID mapping found for {page_url}. "
+            "Add its canonical Page URL and numeric Page ID to resources/facebook_pages.json."
+        )
+
+    page_id = str(page.get("page_id", "")).strip()
+    page_name = str(page.get("name", "Facebook Page")).strip() or "Facebook Page"
+    if not page_id:
+        raise RuntimeError(
+            f"Facebook Page ID is missing for {page_name}. "
+            "Fill page_id in resources/facebook_pages.json."
+        )
+
+    raw_tokens = os.getenv("FACEBOOK_PAGE_ACCESS_TOKENS", "").strip()
+    if not raw_tokens:
+        raise RuntimeError(
+            "Missing FACEBOOK_PAGE_ACCESS_TOKENS GitHub Secret. "
+            "Add a JSON object mapping each Page ID to its Page access token."
+        )
+    try:
+        token_map = json.loads(raw_tokens)
+    except ValueError as exc:
+        raise RuntimeError("FACEBOOK_PAGE_ACCESS_TOKENS must be valid JSON.") from exc
+    access_token = str(token_map.get(page_id, "")).strip()
+    if not access_token:
+        raise RuntimeError(
+            f"No Page access token configured for {page_name} (Page ID {page_id})."
+        )
+
+    api_version = os.getenv("FACEBOOK_GRAPH_API_VERSION", "v24.0").strip() or "v24.0"
+    max_age_days = max(1, int(os.getenv("DRAMA_MAX_AGE_DAYS", "30")))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    endpoint = f"https://graph.facebook.com/{api_version}/{page_id}/videos"
+    params = {
+        "fields": "id,description,created_time,permalink_url",
+        "limit": 50,
+        "access_token": access_token,
+    }
+    candidates = []
+    pages_checked = 0
+
+    # Follow a small number of official API pages so a busy Page does not
+    # hide recent unseen uploads. Never scrape or bypass Facebook access rules.
+    while endpoint and pages_checked < 3:
+        response = requests.get(endpoint, params=params, timeout=30)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        if response.status_code >= 400 or payload.get("error"):
+            error = payload.get("error", {})
+            detail = error.get("message") or response.text[:300] or f"HTTP {response.status_code}"
+            raise RuntimeError(f"Facebook Graph API could not list {page_name} videos: {detail}")
+        for item in payload.get("data", []):
+            video_id = str(item.get("id", "")).strip()
+            permalink = str(item.get("permalink_url", "")).strip()
+            created_text = str(item.get("created_time", "")).strip()
+            if not video_id or video_id in seen_ids or not permalink.startswith("https://"):
+                continue
+            try:
+                created = datetime.fromisoformat(created_text.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if created < cutoff:
+                continue
+            description = str(item.get("description", "")).strip()
+            title = next((line.strip() for line in description.splitlines() if line.strip()), "")
+            candidates.append((created, {
+                "id": video_id,
+                "url": permalink,
+                "title": title[:180] or f"Latest video from {page_name}",
+            }))
+        pages_checked += 1
+        paging = payload.get("paging") or {}
+        endpoint = paging.get("next")
+        params = None
+
+    if not candidates:
+        log(f"No unseen Facebook videos from the last {max_age_days} days at {page_name}.")
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    selected = candidates[0][1]
+    log(f"Facebook API discovered {len(candidates)} unseen recent video(s) from {page_name}.")
+    return selected
+
+
 def discover_episode(source_url, seen_ids):
     lower_url = source_url.lower()
+    if "facebook.com/" in lower_url or "fb.watch/" in lower_url:
+        return discover_facebook_latest(source_url, seen_ids)
+
     is_youtube = any(host in lower_url for host in ("youtube.com/", "youtu.be/"))
     is_youtube_channel = is_youtube and any(
         marker in lower_url for marker in ("/@", "/channel/", "/c/", "/user/")
