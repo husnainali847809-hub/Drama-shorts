@@ -60,6 +60,9 @@ jobs:
           yt-dlp --version
           deno --version
 
+      - name: Discover recent videos from local Pakistani drama channels (discovery only)
+        run: python discover_local_sources.py
+
       - name: Validate Python syntax
         run: python -m compileall -q .
 
