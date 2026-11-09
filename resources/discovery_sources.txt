@@ -1,0 +1,10 @@
+# Discovery-only candidate Pakistani Urdu drama upload channels.
+# These are not automatically approved sources and are NOT sent to the clip/repost pipeline.
+# Add more channel URLs here, one per line.
+https://www.youtube.com/@DramaBazaar
+https://www.youtube.com/@bestpakistanidramas
+https://www.youtube.com/@spiceott
+https://www.youtube.com/@geokahani
+https://www.youtube.com/@aplusentertainmenttv
+https://www.youtube.com/@setdramashd
+https://www.youtube.com/@greeninternationalofficial
