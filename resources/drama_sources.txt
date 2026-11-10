@@ -1,9 +1,4 @@
-# YouTube Channels
+# YouTube fallback channels (Facebook sources are discovered automatically)
 https://youtube.com/@expressentertainment
 https://youtube.com/@greenentertainmenttv
 https://youtube.com/@humtv
-
-# Facebook Pages
-https://www.facebook.com/share/1HwFMcHfsk/
-https://www.facebook.com/share/1DbJnVdPNe/
-https://www.facebook.com/share/1CXauypvxL/

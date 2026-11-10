@@ -149,84 +149,89 @@ def discover_youtube_latest(channel_url, seen_ids):
     return candidates[0][1]
 
 
-def discover_facebook_latest(page_url, seen_ids):
+def discover_facebook_candidates(seen_ids):
     """
-    Discover recent videos from an authorized Facebook Page through Meta's
-    Graph API. The API lists candidate posts; yt-dlp is still used only for
-    ordinary, permitted access to the selected public video permalink.
+    Search public Facebook Pages for Pakistani-drama sources through Meta's
+    official Pages Search API, then list recent public videos from those Pages.
+
+    Requires META_APP_ACCESS_TOKEN and Meta approval for Page Public Content
+    Access (or another permission explicitly sufficient for this use case).
+    This discovers Pages/videos only; it does not bypass privacy, login,
+    anti-bot, DRM, or media-download restrictions.
     """
-    config_file = ROOT / "resources" / "facebook_pages.json"
-    if not config_file.exists():
-        raise RuntimeError(
-            "Missing resources/facebook_pages.json. Add each Facebook Page URL and Page ID."
-        )
-    try:
-        pages = json.loads(config_file.read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        raise RuntimeError(f"Could not read Facebook Page config: {exc}") from exc
-
-    normalized_source = page_url.rstrip("/").lower()
-    page = next(
-        (
-            item for item in pages
-            if str(item.get("page_url", "")).rstrip("/").lower() == normalized_source
-        ),
-        None,
-    )
-    if not page:
-        raise RuntimeError(
-            f"No Facebook Page ID mapping found for {page_url}. "
-            "Add its canonical Page URL and numeric Page ID to resources/facebook_pages.json."
-        )
-
-    page_id = str(page.get("page_id", "")).strip()
-    page_name = str(page.get("name", "Facebook Page")).strip() or "Facebook Page"
-    if not page_id:
-        raise RuntimeError(
-            f"Facebook Page ID is missing for {page_name}. "
-            "Fill page_id in resources/facebook_pages.json."
-        )
-
-    raw_tokens = os.getenv("FACEBOOK_PAGE_ACCESS_TOKENS", "").strip()
-    if not raw_tokens:
-        raise RuntimeError(
-            "Missing FACEBOOK_PAGE_ACCESS_TOKENS GitHub Secret. "
-            "Add a JSON object mapping each Page ID to its Page access token."
-        )
-    try:
-        token_map = json.loads(raw_tokens)
-    except ValueError as exc:
-        raise RuntimeError("FACEBOOK_PAGE_ACCESS_TOKENS must be valid JSON.") from exc
-    access_token = str(token_map.get(page_id, "")).strip()
+    access_token = os.getenv("META_APP_ACCESS_TOKEN", "").strip()
     if not access_token:
-        raise RuntimeError(
-            f"No Page access token configured for {page_name} (Page ID {page_id})."
-        )
+        log("Facebook auto-discovery skipped: META_APP_ACCESS_TOKEN GitHub Secret is not set.")
+        return []
 
-    api_version = os.getenv("FACEBOOK_GRAPH_API_VERSION", "v24.0").strip() or "v24.0"
+    api_version = os.getenv("META_GRAPH_API_VERSION", "v26.0").strip() or "v26.0"
     max_age_days = max(1, int(os.getenv("DRAMA_MAX_AGE_DAYS", "30")))
     cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
-    endpoint = f"https://graph.facebook.com/{api_version}/{page_id}/videos"
-    params = {
-        "fields": "id,description,created_time,permalink_url",
-        "limit": 50,
-        "access_token": access_token,
-    }
-    candidates = []
-    pages_checked = 0
+    search_terms = [
+        term.strip()
+        for term in os.getenv(
+            "FACEBOOK_SEARCH_TERMS",
+            "Pakistani drama,Pakistani drama official,Pakistani television drama"
+        ).split(",")
+        if term.strip()
+    ]
+    base_url = f"https://graph.facebook.com/{api_version}"
+    pages_by_id = {}
 
-    # Follow a small number of official API pages so a busy Page does not
-    # hide recent unseen uploads. Never scrape or bypass Facebook access rules.
-    while endpoint and pages_checked < 3:
-        response = requests.get(endpoint, params=params, timeout=30)
+    for term in search_terms:
+        response = requests.get(
+            f"{base_url}/pages/search",
+            params={
+                "q": term,
+                "fields": "id,name,link",
+                "limit": 25,
+                "access_token": access_token,
+            },
+            timeout=30,
+        )
         try:
             payload = response.json()
         except ValueError:
             payload = {}
         if response.status_code >= 400 or payload.get("error"):
-            error = payload.get("error", {})
+            error = payload.get("error") or {}
             detail = error.get("message") or response.text[:300] or f"HTTP {response.status_code}"
-            raise RuntimeError(f"Facebook Graph API could not list {page_name} videos: {detail}")
+            log(f"Meta Page Search failed for '{term}': {detail}")
+            continue
+        for page in payload.get("data", []):
+            page_id = str(page.get("id", "")).strip()
+            if page_id:
+                pages_by_id[page_id] = {
+                    "id": page_id,
+                    "name": str(page.get("name") or "Facebook Page").strip(),
+                    "link": str(page.get("link") or "").strip(),
+                }
+
+    if not pages_by_id:
+        log("Facebook auto-discovery found no Pages. Check Meta token, API version and approved Page search permissions.")
+        return []
+
+    candidates_by_id = {}
+    for page_id, page in pages_by_id.items():
+        response = requests.get(
+            f"{base_url}/{page_id}/videos",
+            params={
+                "fields": "id,description,created_time,permalink_url",
+                "limit": 25,
+                "access_token": access_token,
+            },
+            timeout=30,
+        )
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        if response.status_code >= 400 or payload.get("error"):
+            error = payload.get("error") or {}
+            detail = error.get("message") or response.text[:250] or f"HTTP {response.status_code}"
+            log(f"Could not list public videos for {page['name']}: {detail}")
+            continue
+
         for item in payload.get("data", []):
             video_id = str(item.get("id", "")).strip()
             permalink = str(item.get("permalink_url", "")).strip()
@@ -241,30 +246,26 @@ def discover_facebook_latest(page_url, seen_ids):
                 continue
             description = str(item.get("description", "")).strip()
             title = next((line.strip() for line in description.splitlines() if line.strip()), "")
-            candidates.append((created, {
+            candidates_by_id[video_id] = {
                 "id": video_id,
                 "url": permalink,
-                "title": title[:180] or f"Latest video from {page_name}",
-            }))
-        pages_checked += 1
-        paging = payload.get("paging") or {}
-        endpoint = paging.get("next")
-        params = None
+                "title": title[:180] or f"Latest video from {page['name']}",
+                "source_page": page["name"],
+                "created_time": created_text,
+            }
 
-    if not candidates:
-        log(f"No unseen Facebook videos from the last {max_age_days} days at {page_name}.")
-        return None
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    selected = candidates[0][1]
-    log(f"Facebook API discovered {len(candidates)} unseen recent video(s) from {page_name}.")
-    return selected
-
+    candidates = list(candidates_by_id.values())
+    candidates.sort(key=lambda item: item.get("created_time", ""), reverse=True)
+    max_candidates = max(1, int(os.getenv("FACEBOOK_MAX_CANDIDATES", "30")))
+    candidates = candidates[:max_candidates]
+    log(
+        f"Facebook auto-discovery checked {len(pages_by_id)} public Page(s) "
+        f"and found {len(candidates)} unseen recent video(s)."
+    )
+    return candidates
 
 def discover_episode(source_url, seen_ids):
     lower_url = source_url.lower()
-    if "facebook.com/" in lower_url or "fb.watch/" in lower_url:
-        return discover_facebook_latest(source_url, seen_ids)
-
     is_youtube = any(host in lower_url for host in ("youtube.com/", "youtu.be/"))
     is_youtube_channel = is_youtube and any(
         marker in lower_url for marker in ("/@", "/channel/", "/c/", "/user/")
@@ -659,29 +660,41 @@ def main():
     source_used = None
     source_errors = []
 
+    # Search Facebook automatically; no manually supplied Facebook URLs or
+    # Page-ID mapping file is used. Try recent public Page videos newest first.
+    facebook_candidates = discover_facebook_candidates(set(history["video_ids"]))
+    candidate_jobs = [
+        (f"Facebook Page: {item.get('source_page', 'unknown')}", item)
+        for item in facebook_candidates
+    ]
+
+    # Keep configured non-Facebook sources (for example YouTube channels) as
+    # fallback sources. Facebook links in drama_sources.txt are not required.
     for source_index, source in enumerate(sources):
         try:
             found = discover_episode(source, set(history["video_ids"]))
-            if not found:
-                log(f"No unseen episode found at source {source_index + 1}; checking next source.")
-                continue
-            try:
-                resolved_stream = get_stream_source(found["url"])
-            except Exception as stream_error:
-                source_errors.append(f"{source}: stream access failed: {stream_error}")
-                log(f"Source {source_index + 1} could not provide an online stream; trying the next source.")
-                continue
+            if found:
+                candidate_jobs.append((source, found))
+            else:
+                log(f"No unseen episode found at configured source {source_index + 1}.")
+        except Exception as exc:
+            source_errors.append(f"{source}: {exc}")
+            log(f"Configured source {source_index + 1} could not be checked: {exc}")
+
+    for source, found in candidate_jobs:
+        try:
+            resolved_stream = get_stream_source(found["url"])
             episode = found
             stream = resolved_stream
             source_used = source
             break
-        except Exception as exc:
-            source_errors.append(f"{source}: {exc}")
-            log(f"Source {source_index + 1} could not be checked; trying the next source.")
+        except Exception as stream_error:
+            source_errors.append(f"{source}: stream access failed: {stream_error}")
+            log(f"{source} could not provide an accessible stream; trying the next candidate.")
 
     if not episode or not stream:
         raise RuntimeError(
-            "No configured source provided an accessible online stream. "
+            "No discovered or configured source provided an accessible online stream. "
             "Streaming avoids downloading the full episode, but the platform must still expose "
             "a public stream to this runner; sign-in/anti-bot protected videos will fail. "
             + " | ".join(source_errors[:5])
