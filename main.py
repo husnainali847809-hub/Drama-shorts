@@ -679,34 +679,12 @@ def main():
             source_errors.append(f"{source}: {exc}")
             log(f"Source {source_index + 1} could not be checked; trying the next source.")
 
-    # Last-resort automatic discovery: search Internet Archive for videos whose
-    # uploader metadata declares CC0 or Public Domain Mark licensing. This does
-    # not bypass broadcaster restrictions and never treats ordinary channel
-    # uploads as reusable merely because they are public.
-    if not episode or not stream:
-        try:
-            from licensed_archive_sources import discover_latest, get_stream
-            archive_candidate = discover_latest(set(history["video_ids"]))
-            if archive_candidate:
-                log(
-                    "Found a candidate on Internet Archive with CC0/Public Domain "
-                    f"metadata: {archive_candidate['title']}"
-                )
-                archive_stream = get_stream(archive_candidate, CLIP_SECONDS)
-                episode = archive_candidate
-                stream = archive_stream
-                source_used = "Internet Archive (CC0/Public Domain metadata)"
-            else:
-                log("No eligible CC0/Public Domain Pakistani/Urdu drama video found on Internet Archive.")
-        except Exception as archive_error:
-            source_errors.append(f"Internet Archive discovery: {archive_error}")
-            log(f"Internet Archive fallback could not provide a usable video: {archive_error}")
-
     if not episode or not stream:
         raise RuntimeError(
-            "No configured source or openly licensed Archive.org item provided an accessible video. "
-            "YouTube sign-in/anti-bot protection and private/DRM platform restrictions are not bypassed. "
-            + " | ".join(source_errors[:6])
+            "No configured source provided an accessible online stream. "
+            "Streaming avoids downloading the full episode, but the platform must still expose "
+            "a public stream to this runner; sign-in/anti-bot protected videos will fail. "
+            + " | ".join(source_errors[:5])
         )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
