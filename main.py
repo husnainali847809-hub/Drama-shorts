@@ -378,7 +378,10 @@ def get_stream_source(video_url):
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "format": "best[height<=1080]/best",
+        # Do not force a named quality while extracting metadata. Some videos
+        # expose only a different set of formats, so yt-dlp's strict selector
+        # can fail before we get a chance to inspect the available formats.
+        "ignore_no_formats_error": True,
         "socket_timeout": 30,
         "extractor_retries": 2,
     }
@@ -387,33 +390,44 @@ def get_stream_source(video_url):
     if not isinstance(info, dict):
         raise RuntimeError("Video source did not return usable stream metadata.")
 
-    stream_url = info.get("url")
-    if not stream_url:
-        # Prefer a single combined audio/video format. Separate DASH tracks
-        # require a more complex multi-input stream and are intentionally
-        # not guessed here.
-        formats = info.get("formats") or []
-        combined = [
-            item for item in formats
-            if item.get("url")
-            and item.get("vcodec") not in (None, "none")
-            and item.get("acodec") not in (None, "none")
-        ]
-        combined.sort(key=lambda item: (
-            item.get("height") or 0,
-            item.get("tbr") or 0
-        ), reverse=True)
-        if combined:
-            stream_url = combined[0]["url"]
-            info["http_headers"] = combined[0].get("http_headers") or info.get("http_headers") or {}
+    stream_url = None
+    headers = info.get("http_headers") or {}
+
+    # Use a direct top-level URL only when yt-dlp actually returned one.
+    candidate_url = info.get("url")
+    if candidate_url and info.get("vcodec") not in (None, "none") and info.get("acodec") not in (None, "none"):
+        stream_url = candidate_url
+
+    # Prefer one combined audio/video format, avoiding separate DASH tracks
+    # because the downstream frame/clip reader expects one input stream.
+    formats = info.get("formats") or []
+    combined = [
+        item for item in formats
+        if item.get("url")
+        and item.get("vcodec") not in (None, "none")
+        and item.get("acodec") not in (None, "none")
+    ]
+    combined.sort(key=lambda item: (
+        item.get("height") or 0,
+        item.get("tbr") or 0
+    ), reverse=True)
+
+    if combined:
+        selected = next(
+            (item for item in combined if (item.get("height") or 0) <= 1080),
+            combined[0],
+        )
+        stream_url = selected["url"]
+        headers = selected.get("http_headers") or headers
 
     duration = float(info.get("duration") or 0)
     if not stream_url or duration <= CLIP_SECONDS + 5:
+        available_count = len(formats)
         raise RuntimeError(
-            "Could not resolve a single public audio/video stream or episode duration. "
-            "This source may require sign-in, verification, or separate DASH tracks."
+            "No single combined audio/video stream is available "
+            f"(yt-dlp exposed {available_count} format(s)); "
+            "the video may require sign-in, verification, or separate DASH tracks."
         )
-    headers = info.get("http_headers") or {}
     return {
         "url": stream_url,
         "headers": headers,
