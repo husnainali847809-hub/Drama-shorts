@@ -189,7 +189,9 @@ def main():
     log(f"Found new Drive video: {item.get('name', item['id'])}.")
     pipeline.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="drive-video-work-") as work_dir:
-        source_path = Path(work_dir) / "drive_source_video"
+        safe_name = Path(item.get("name") or "drive_video.mp4").name
+        suffix = Path(safe_name).suffix.lower() or ".mp4"
+        source_path = Path(work_dir) / ("drive_source_video" + suffix)
         download_video(token, item, source_path)
         start, category, reason = classify_local_video(source_path, work_dir)
         log(f"AI selected {category} scene at {start:.1f}s: {reason or 'no reason returned'}")
