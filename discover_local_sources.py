@@ -25,7 +25,7 @@ def channel_id_from_url(url):
     patterns = [
         r'"channelId"\s*:\s*"(UC[a-zA-Z0-9_-]{20,})"',
         r'"externalId"\s*:\s*"(UC[a-zA-Z0-9_-]{20,})"',
-        r"""<meta[^>]+itemprop=["\']channelId["\'][^>]+content=["\'](UC[a-zA-Z0-9_-]{20,})""",
+        r"""<meta[^>]+itemprop=["']channelId["'][^>]+content=["'](UC[a-zA-Z0-9_-]{20,})""",
     ]
     for pattern in patterns:
         found = re.search(pattern, response.text)
