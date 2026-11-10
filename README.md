@@ -14,19 +14,6 @@ The scheduled workflow also runs `discover_local_sources.py` against `resources/
 
 This is discovery only: it does not download those videos or add them to the reposting queue. Channel handles and upload availability can change; inspect the CSV and verify the uploader/source before using any footage.
 
-
-## 1B. Automatic openly licensed archive fallback
-
-If the configured broadcaster/channel sources cannot provide a public stream, the main pipeline now searches Internet Archive automatically for Pakistani/Urdu drama video items. It accepts only items whose uploader metadata declares **CC0** or **Public Domain Mark**, checks for a directly downloadable original video file, probes its duration, and passes the remote file to the same scene-selection and rendering pipeline. Only the selected 85-second segment is fetched.
-
-Important limitations:
-- This is a fallback source, not a guarantee of finding a current or latest drama episode. Internet Archive may have no matching item.
-- Internet Archive says uploaded video rights must belong to the uploader or be public domain; its license metadata is uploader-supplied and is not an independent legal verification. Review the item page and rights before enabling reuse.
-- The fallback does not access private files, DRM streams, account sessions, or bypass YouTube/Facebook restrictions.
-- The runner requires `ffprobe`, which is installed with FFmpeg in the GitHub Actions workflow.
-
-Internet Archive supports metadata search by license URL and provides item metadata/file listings; see [its search help](https://archivesupport.zendesk.com/hc/en-us/articles/360018359991-Search-A-Basic-Guide) and [video rights guidance](https://archivesupport.zendesk.com/hc/en-us/articles/360017808151-Movies-and-Videos-A-Basic-Guide).
-
 ## 2. Confirm reuse rights
 
 Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until you have permission to download, edit, and repost clips from every listed source. After you receive permission, set it to `true` and add a short reference to the written permission in `permission_note`.
