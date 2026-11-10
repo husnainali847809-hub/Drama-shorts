@@ -652,8 +652,7 @@ def main():
     require_rights()
     sources = read_sources()
     if not sources:
-        log("No channel/page links configured yet. Add authorized links to resources/drama_sources.txt.")
-        return
+        log("No fallback sources configured; continuing with automatic Facebook Page discovery.")
     history = read_history()
     episode = None
     stream = None
