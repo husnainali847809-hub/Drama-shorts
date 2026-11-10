@@ -8,6 +8,10 @@ Open `resources/drama_sources.txt` and paste one YouTube channel URL or Facebook
 
 The system checks configured sources for recent uploads. YouTube channel feeds are supported through yt-dlp's normal public access. Facebook links may work only when the page/video is publicly accessible through yt-dlp. The system does not use cookies, bypass sign-in, DRM, private content, or platform restrictions.
 
+**Recommended download method when YouTube extraction is blocked:** add a direct video-file URL supplied by the rights holder (for example, a signed HTTPS `.mp4` link) as its own line in `resources/drama_sources.txt`. The URL must point to the actual downloadable media file, not a watch page, playlist, or streaming-app page. The runner downloads that file, checks that it is a valid video and long enough, then uses the existing scene-selection/editing pipeline. Direct-file downloads have a default 2 GB limit; change it with the `MAX_SOURCE_VIDEO_BYTES` Actions variable if your authorized files are larger. The signed link must remain valid for the duration of the run.
+
+YouTube channel URLs can still fail when YouTube requires sign-in or anti-bot verification. This update does not and cannot make a protected YouTube watch page into a direct MP4 download. Ask the rights holder for a downloadable MP4 or an authorized media-feed/API URL.
+
 ## 1A. Discover local Pakistani drama upload channels
 
 The scheduled workflow also runs `discover_local_sources.py` against `resources/discovery_sources.txt`. This list contains candidate Urdu/Pakistani drama upload channels beyond the major broadcasters. The scanner reads public YouTube channel feeds and writes recent uploads (last 30 days) to `output/local_channel_discoveries.csv`, which is included in the workflow artifact.
