@@ -270,7 +270,9 @@ def discover_episode(source_url, seen_ids):
     if is_direct_media_url(source_url):
         # A direct MP4/MKV/etc. URL must be supplied by the rights holder or
         # an authorized media host. Do not try to extract protected platform pages.
-        video_id = hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:24]
+        parsed_source = urlparse(source_url)
+        stable_source_id = f"{parsed_source.netloc}{parsed_source.path}"
+        video_id = hashlib.sha256(stable_source_id.encode("utf-8")).hexdigest()[:24]
         filename = Path(urlparse(source_url).path).name
         return {
             "id": video_id,
