@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import os
 import random
@@ -260,7 +261,23 @@ def discover_facebook_latest(page_url, seen_ids):
     return selected
 
 
+def is_direct_media_url(url):
+    """True only for an explicit direct video-file URL supplied by an authorized source."""
+    return urlparse(url).path.lower().endswith(tuple(VIDEO_EXTENSIONS))
+
+
 def discover_episode(source_url, seen_ids):
+    if is_direct_media_url(source_url):
+        # A direct MP4/MKV/etc. URL must be supplied by the rights holder or
+        # an authorized media host. Do not try to extract protected platform pages.
+        video_id = hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:24]
+        filename = Path(urlparse(source_url).path).name
+        return {
+            "id": video_id,
+            "url": source_url,
+            "title": filename or "Authorized drama episode",
+        }
+
     lower_url = source_url.lower()
     if "facebook.com/" in lower_url or "fb.watch/" in lower_url:
         return discover_facebook_latest(source_url, seen_ids)
@@ -371,9 +388,78 @@ def download_episode(url, destination):
 
 def get_stream_source(video_url):
     """
-    Resolve a public, authorized video URL to a stream URL without saving
-    the full episode. The selected short segment is fetched later only.
+    Resolve a public, authorized video URL to a stream URL. Explicit direct
+    media-file URLs are downloaded locally; platform pages still use their
+    normal public extractor and are never authenticated or restriction-bypassed.
     """
+    if is_direct_media_url(video_url):
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        destination = OUTPUT_DIR / "_authorized_source_episode.mp4"
+        partial = destination.with_suffix(destination.suffix + ".part")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; AuthorizedDramaClipBot/1.0)"
+        }
+        try:
+            with requests.get(
+                video_url, headers=headers, stream=True, allow_redirects=True,
+                timeout=(30, 120)
+            ) as response:
+                response.raise_for_status()
+                content_type = response.headers.get("Content-Type", "").split(";")[0].lower()
+                allowed_types = {
+                    "", "application/octet-stream", "binary/octet-stream",
+                    "application/mp4", "video/mp4", "video/x-matroska",
+                    "video/webm", "video/quicktime", "video/x-msvideo",
+                }
+                if content_type not in allowed_types and not content_type.startswith("video/"):
+                    raise RuntimeError(
+                        f"Direct media URL returned {content_type or 'unknown content type'}, not a video file."
+                    )
+                content_length = int(response.headers.get("Content-Length") or 0)
+                max_bytes = int(os.getenv("MAX_SOURCE_VIDEO_BYTES", str(2 * 1024 * 1024 * 1024)))
+                if content_length and content_length > max_bytes:
+                    raise RuntimeError(
+                        f"Source episode is {content_length} bytes; configured limit is {max_bytes}."
+                    )
+                downloaded = 0
+                with partial.open("wb") as handle:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if not chunk:
+                            continue
+                        downloaded += len(chunk)
+                        if downloaded > max_bytes:
+                            raise RuntimeError(
+                                f"Source episode exceeded the {max_bytes}-byte download limit."
+                            )
+                        handle.write(chunk)
+            if downloaded < 1_000_000:
+                raise RuntimeError("Direct video download is empty or too small to be a full episode.")
+            partial.replace(destination)
+            probe = VideoFileClip(str(destination), audio=False)
+            try:
+                duration = float(probe.duration or 0)
+            finally:
+                probe.close()
+            if duration <= CLIP_SECONDS + 5:
+                raise RuntimeError(
+                    f"Downloaded video duration ({duration:.1f}s) is too short for a {CLIP_SECONDS}s clip."
+                )
+            log(
+                f"Downloaded authorized direct video file ({downloaded / (1024 * 1024):.1f} MB); "
+                f"duration={duration:.1f}s."
+            )
+            return {
+                "url": str(destination),
+                "headers": {},
+                "duration": duration,
+                "title": Path(urlparse(video_url).path).name or "Authorized drama episode",
+                "downloaded_path": str(destination),
+            }
+        except Exception:
+            partial.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            raise
+
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -712,6 +798,9 @@ def main():
         )
     if output_path.exists():
         output_path.unlink()
+    downloaded_path = stream.get("downloaded_path")
+    if downloaded_path:
+        Path(downloaded_path).unlink(missing_ok=True)
 
 
 
