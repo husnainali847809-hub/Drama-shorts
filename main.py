@@ -783,6 +783,11 @@ def main():
         start, category, reason = classify_stream_candidates(stream, starts, work_dir)
         selected_path = Path(work_dir) / "selected_scene.mp4"
         fetch_selected_stream_clip(stream, start, selected_path)
+        # The selected segment is now local, so remove the full authorized source
+        # episode before rendering/uploading to conserve GitHub Actions disk space.
+        downloaded_path = stream.get("downloaded_path")
+        if downloaded_path:
+            Path(downloaded_path).unlink(missing_ok=True)
         output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
         music_meta = render_clip(selected_path, 0, category, output_path)
         public_url = upload_cloudinary(output_path)
