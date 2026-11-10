@@ -78,6 +78,7 @@ jobs:
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: pakistani-drama-clips
           CLIP_SECONDS: "85"
+          MAX_SOURCE_VIDEO_BYTES: ${{ vars.MAX_SOURCE_VIDEO_BYTES || '2147483648' }}
         run: python main.py
 
       - name: Save generated clip for review
