@@ -476,7 +476,8 @@ def extract_stream_frame(stream, second, destination, video_url=None):
         except Exception as refresh_error:
             last_error = f"{last_error}; stream refresh failed: {str(refresh_error)[:200]}"
 
-    raise RuntimeError(f"Could not read frame from online stream after refreshing: {last_error}")
+    safe_error = re.sub(r"https?://\\S+", "<media-url>", last_error)
+    raise RuntimeError(f"Could not read frame from online stream after refreshing: {safe_error}")
 
 
 def candidate_starts(duration):
