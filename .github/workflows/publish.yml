@@ -78,6 +78,10 @@ jobs:
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: pakistani-drama-clips
           CLIP_SECONDS: "85"
+          META_APP_ACCESS_TOKEN: ${{ secrets.META_APP_ACCESS_TOKEN }}
+          META_GRAPH_API_VERSION: ${{ vars.META_GRAPH_API_VERSION || 'v26.0' }}
+          FACEBOOK_SEARCH_TERMS: ${{ vars.FACEBOOK_SEARCH_TERMS || 'Pakistani drama,Pakistani drama official,Pakistani television drama' }}
+          FACEBOOK_MAX_CANDIDATES: "30"
         run: python main.py
 
       - name: Save generated clip for review
