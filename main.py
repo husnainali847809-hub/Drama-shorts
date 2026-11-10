@@ -474,9 +474,13 @@ def extract_stream_frame(stream, second, destination, video_url=None):
             stream.clear()
             stream.update(refreshed)
         except Exception as refresh_error:
-            last_error = f"{last_error}; stream refresh failed: {str(refresh_error)[:200]}"
+            refresh_detail = str(refresh_error)
+            last_error = f"{last_error}; stream refresh failed: {refresh_detail[:200]}"
+            if "sign in to confirm" in refresh_detail.lower() or "confirm you're not a bot" in refresh_detail.lower() or "confirm you’re not a bot" in refresh_detail.lower():
+                log("YouTube requires account verification for this video; stopping retries for this source.")
+                break
 
-    safe_error = re.sub(r"https?://\\S+", "<media-url>", last_error)
+    safe_error = re.sub(r"https?://\S+", "<media-url>", last_error)
     raise RuntimeError(f"Could not read frame from online stream after refreshing: {safe_error}")
 
 
@@ -685,44 +689,63 @@ def main():
     episode = None
     stream = None
     source_used = None
+    selected_start = None
+    selected_category = None
+    selection_reason = ""
     source_errors = []
 
-    for source_index, source in enumerate(sources):
-        try:
-            found = discover_episode(source, set(history["video_ids"]))
-            if not found:
-                log(f"No unseen episode found at source {source_index + 1}; checking next source.")
-                continue
-            try:
-                resolved_stream = get_stream_source(found["url"])
-            except Exception as stream_error:
-                source_errors.append(f"{source}: stream access failed: {stream_error}")
-                log(f"Source {source_index + 1} could not provide an online stream; trying the next source.")
-                continue
-            episode = found
-            stream = resolved_stream
-            source_used = source
-            break
-        except Exception as exc:
-            source_errors.append(f"{source}: {exc}")
-            log(f"Source {source_index + 1} could not be checked; trying the next source.")
-
-    if not episode or not stream:
-        raise RuntimeError(
-            "No configured source provided an accessible online stream. "
-            "Streaming avoids downloading the full episode, but the platform must still expose "
-            "a public stream to this runner; sign-in/anti-bot protected videos will fail. "
-            + " | ".join(source_errors[:5])
-        )
-
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Validate each source through frame classification before choosing it.
+    # A stream URL may resolve successfully while the CDN still blocks FFmpeg
+    # or YouTube demands account verification. In that case, skip this source.
     with tempfile.TemporaryDirectory(prefix="drama-stream-work-") as work_dir:
-        starts = candidate_starts(stream["duration"])
-        log(
-            f"Resolved online stream for '{episode.get('title')}'. "
-            f"Checking {len(starts)} candidate windows without saving the full episode."
-        )
-        start, category, reason = classify_stream_candidates(stream, starts, work_dir, video_url=episode['url'])
+        for source_index, source in enumerate(sources):
+            try:
+                found = discover_episode(source, set(history["video_ids"]))
+                if not found:
+                    log(f"No unseen episode found at source {source_index + 1}; checking next source.")
+                    continue
+                resolved_stream = get_stream_source(found["url"])
+                starts = candidate_starts(resolved_stream["duration"])
+                log(
+                    f"Resolved online stream for '{found.get('title')}'. "
+                    f"Checking {len(starts)} candidate windows without saving the full episode."
+                )
+                try:
+                    chosen_start, chosen_category, chosen_reason = classify_stream_candidates(
+                        resolved_stream, starts, work_dir, video_url=found["url"]
+                    )
+                except Exception as frame_error:
+                    detail = str(frame_error)
+                    source_errors.append(f"{source}: frame/classification failed: {detail[:300]}")
+                    log(
+                        f"Source {source_index + 1} could not provide readable frames "
+                        f"(possibly sign-in/anti-bot protected); trying the next source."
+                    )
+                    continue
+
+                episode = found
+                stream = resolved_stream
+                source_used = source
+                selected_start = chosen_start
+                selected_category = chosen_category
+                selection_reason = chosen_reason
+                break
+            except Exception as exc:
+                source_errors.append(f"{source}: {str(exc)[:300]}")
+                log(f"Source {source_index + 1} could not be checked; trying the next source.")
+
+        if not episode or not stream or selected_start is None:
+            raise RuntimeError(
+                "No configured source provided a stream that this runner could read and classify. "
+                "YouTube sign-in/anti-bot checks and inaccessible CDN streams cannot be bypassed; "
+                "add another source that provides authorized, accessible video access. "
+                + " | ".join(source_errors[:5])
+            )
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        start = selected_start
+        category = selected_category
+        reason = selection_reason
         selected_path = Path(work_dir) / "selected_scene.mp4"
         fetch_selected_stream_clip(stream, start, selected_path)
         output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
