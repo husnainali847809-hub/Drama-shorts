@@ -2,6 +2,24 @@
 
 This repository is prepared to create **one vertical Pakistani drama clip per scheduled run** and add it to the configured Facebook Reel queue in Buffer. The schedule runs five times daily (Pakistan time: 09:00, 12:00, 15:00, 18:00, 21:00), for a target of five queued clips per day when all inputs and services are available.
 
+## Google Drive video input (primary source)
+
+The publishing workflow now reads the newest unprocessed video from one Google Drive folder using the Drive API. It downloads that file to the temporary GitHub Actions runner, analyzes candidate scenes, renders one vertical clip, uploads it to Cloudinary, and queues it in Buffer. The original full video is not committed to this repository.
+
+### Configure Google OAuth securely
+
+1. In Google Cloud Console, enable the **Google Drive API** for the project used by your OAuth client.
+2. Use the OAuth client JSON you downloaded to obtain a refresh token with the `https://www.googleapis.com/auth/drive.readonly` scope. The OAuth consent/account must be the same Google account that can access the video folder.
+3. In GitHub **Settings → Secrets and variables → Actions → Secrets**, add:
+   - `DRIVE_CLIENT_ID` — OAuth client ID from the downloaded client JSON.
+   - `DRIVE_CLIENT_SECRET` — OAuth client secret from that JSON.
+   - `DRIVE_REFRESH_TOKEN` — refresh token (keep it secret; never commit or paste it into chat).
+4. In **Settings → Secrets and variables → Actions → Variables**, add:
+   - `DRIVE_FOLDER_ID` — the folder ID from the Google Drive folder URL (the part after `/folders/`).
+5. Put your authorized video file inside that folder. Supported inputs are regular video files such as MP4, MOV, MKV, or WEBM; Google Docs/Slides/Photos links are not video files.
+
+The Drive OAuth token needs read-only access. The workflow does not need permission to edit or delete Drive files. Only upload videos you own or have permission to edit and repost. A successful run queues a clip in Buffer; it does not publish immediately.
+
 ## 1. Add authorized drama sources
 
 Open `resources/drama_sources.txt` and paste one YouTube channel URL or Facebook Page URL per line. The file is intentionally blank until you have permission from each rights holder.
