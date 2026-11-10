@@ -430,26 +430,53 @@ def ffmpeg_headers(headers):
     return ("\r\n".join(lines) + "\r\n") if lines else ""
 
 
-def extract_stream_frame(stream, second, destination):
+def extract_stream_frame(stream, second, destination, video_url=None):
+    """
+    Extract one frame. If a signed media URL has expired or the CDN rejects it,
+    resolve a fresh public stream URL and retry; never reuse the stale URL.
+    """
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    command = [
-        ffmpeg, "-hide_banner", "-loglevel", "error",
-        "-rw_timeout", "30000000",
-        "-ss", f"{max(0.0, float(second)):.3f}",
-    ]
-    header_text = ffmpeg_headers(stream.get("headers"))
-    if header_text:
-        command.extend(["-headers", header_text])
-    command.extend([
-        "-i", stream["url"],
-        "-frames:v", "1",
-        "-vf", "scale='min(640,iw)':-2",
-        "-q:v", "3", "-y", str(destination),
-    ])
-    result = subprocess.run(command, capture_output=True, text=True, timeout=100)
-    if result.returncode != 0 or not Path(destination).exists() or Path(destination).stat().st_size == 0:
-        detail = (result.stderr or result.stdout or "No frame returned")[-500:]
-        raise RuntimeError(f"Could not read frame from online stream: {detail}")
+    last_error = "No frame returned"
+
+    for attempt in range(3):
+        command = [
+            ffmpeg, "-hide_banner", "-loglevel", "error",
+            "-rw_timeout", "30000000",
+            "-ss", f"{max(0.0, float(second)):.3f}",
+        ]
+        header_text = ffmpeg_headers(stream.get("headers"))
+        if header_text:
+            command.extend(["-headers", header_text])
+        command.extend([
+            "-i", stream["url"],
+            "-frames:v", "1",
+            "-vf", "scale='min(640,iw)':-2",
+            "-q:v", "3", "-y", str(destination),
+        ])
+
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=100)
+        except subprocess.TimeoutExpired:
+            last_error = "FFmpeg timed out while reading the online stream."
+            result = None
+
+        if result is not None and result.returncode == 0 and Path(destination).exists() and Path(destination).stat().st_size > 0:
+            return
+
+        if result is not None:
+            last_error = (result.stderr or result.stdout or "No frame returned")[-500:]
+        if attempt >= 2 or not video_url:
+            break
+
+        log(f"Frame request failed (attempt {attempt + 1}); refreshing the stream URL.")
+        try:
+            refreshed = get_stream_source(video_url)
+            stream.clear()
+            stream.update(refreshed)
+        except Exception as refresh_error:
+            last_error = f"{last_error}; stream refresh failed: {str(refresh_error)[:200]}"
+
+    raise RuntimeError(f"Could not read frame from online stream after refreshing: {last_error}")
 
 
 def candidate_starts(duration):
@@ -475,7 +502,7 @@ def frame_data(clip, second):
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def classify_stream_candidates(stream, starts, work_dir):
+def classify_stream_candidates(stream, starts, work_dir, video_url=None):
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
@@ -487,7 +514,7 @@ def classify_stream_candidates(stream, starts, work_dir):
     for index, start in enumerate(starts):
         for frame_number, offset in enumerate((CLIP_SECONDS * 0.25, CLIP_SECONDS * 0.70)):
             frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
-            extract_stream_frame(stream, start + offset, frame_path)
+            extract_stream_frame(stream, start + offset, frame_path, video_url=video_url)
             with Image.open(frame_path) as image:
                 image = image.convert("RGB")
                 image.thumbnail((640, 640))
@@ -694,7 +721,7 @@ def main():
             f"Resolved online stream for '{episode.get('title')}'. "
             f"Checking {len(starts)} candidate windows without saving the full episode."
         )
-        start, category, reason = classify_stream_candidates(stream, starts, work_dir)
+        start, category, reason = classify_stream_candidates(stream, starts, work_dir, video_url=episode['url'])
         selected_path = Path(work_dir) / "selected_scene.mp4"
         fetch_selected_stream_clip(stream, start, selected_path)
         output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
