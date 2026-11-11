@@ -205,7 +205,7 @@ def main():
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
             f"file={item.get('name')}; music="
-            f"{music_meta.get('title') or music_meta.get('attribution') or 'licensed track'}"
+            f"{music_meta.get('title') or 'original audio only'}"
         )
     if output_path.exists():
         output_path.unlink()
