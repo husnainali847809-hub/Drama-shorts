@@ -1,6 +1,6 @@
-# Authorized mood-matched music
+# Optional background music
 
-Create one folder for each scene category:
+Add an audio file to the matching category folder if you want background music:
 - action/
 - emotional/
 - comedy/
@@ -8,20 +8,9 @@ Create one folder for each scene category:
 - suspense/
 - interesting/
 
-Place only music you own, have written permission to use, or that has an accepted reusable licence in the matching folder.
+Supported formats: MP3, WAV, M4A and AAC.
 
-For every audio file, add a sidecar named exactly like this:
-`track.mp3.license.json`
+No sidecar JSON or licence metadata file is required. If a folder has no audio file,
+the video keeps its original audio only.
 
-Example:
-```json
-{
-  "title": "My licensed emotional instrumental",
-  "license": "direct permission",
-  "permission_reference": "Written permission email dated 2026-11-08"
-}
-```
-
-Accepted licence values: `public domain`, `cc0`, `cc-by`, `cc-by-sa`, or `direct permission`.
-For `cc-by` and `cc-by-sa`, include an `attribution` field. For direct permission, include a `permission_reference` field.
-Tracks must be at least as long as CLIP_SECONDS (default 85 seconds). Music without valid sidecar metadata is ignored.
+Only add music that you have the right to use.
