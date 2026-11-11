@@ -603,42 +603,25 @@ def fetch_selected_stream_clip(stream, start, destination):
 
 
 def reusable_music_track(category):
+    """Find a local background-music file without requiring sidecar licence metadata."""
     folder = MUSIC_ROOT / category
     if not folder.exists():
-        raise RuntimeError(f"Missing licensed music folder: assets/music/{category}/")
+        return None, {"title": "Original audio only", "attribution": ""}
     for track in sorted(folder.iterdir()):
-        if track.suffix.lower() not in {".mp3", ".wav", ".m4a", ".aac"}:
-            continue
-        metadata_path = track.with_suffix(track.suffix + ".license.json")
-        if not metadata_path.exists():
-            continue
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
-            continue
-        license_name = str(metadata.get("license", "")).strip().lower()
-        accepted = {"public domain", "cc0", "cc-by", "cc-by-sa", "direct permission"}
-        if license_name not in accepted:
-            continue
-        if license_name == "direct permission" and not str(metadata.get("permission_reference", "")).strip():
-            continue
-        if license_name in {"cc-by", "cc-by-sa"} and not str(metadata.get("attribution", "")).strip():
-            continue
-        return track, metadata
-    raise RuntimeError(
-        f"No authorized music track found for '{category}'. Add a track and its .license.json sidecar; see assets/music/README.md."
-    )
+        if track.suffix.lower() in {".mp3", ".wav", ".m4a", ".aac"}:
+            return track, {"title": track.stem, "attribution": ""}
+    return None, {"title": "Original audio only", "attribution": ""}
 
 
 def render_clip(source_path, start, category, output_path):
-    # Background music is optional: preserve the source audio even when no
-    # valid licensed track is available for this scene category.
+    # Background music is optional: use a local track if present; otherwise
+    # preserve the source audio without requiring licence sidecar metadata.
     music_path = None
     music_meta = {"title": "Original audio only", "attribution": ""}
     try:
         music_path, music_meta = reusable_music_track(category)
     except RuntimeError as exc:
-        log(f"No licensed background music available for '{category}'; keeping original audio only. {exc}")
+        log(f"No background music available for '{category}'; keeping original audio only. {exc}")
 
     source = VideoFileClip(str(source_path))
     clip = source.subclipped(start, min(start + CLIP_SECONDS, source.duration))
@@ -666,7 +649,7 @@ def render_clip(source_path, start, category, output_path):
             mixed_audio = CompositeAudioClip(audio_layers)
             final = vertical.with_audio(mixed_audio)
         else:
-            log(f"Licensed music track is shorter than the clip; keeping original audio only: {music_path.name}")
+            log(f"Background music track is shorter than the clip; keeping original audio only: {music_path.name}")
             music.close()
             music = None
             music_meta = {"title": "Original audio only", "attribution": ""}
@@ -789,7 +772,7 @@ def main():
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
             f"episode={episode.get('title')}; source={source_used}; start={start:.1f}s; "
-            f"music={music_meta.get('title') or music_meta.get('attribution') or 'licensed track'}; "
+            f"music={music_meta.get('title') or 'original audio only'}; "
             f"selection_reason={reason}"
         )
     if output_path.exists():
