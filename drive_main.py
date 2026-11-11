@@ -36,15 +36,30 @@ def access_token():
     response = requests.post(
         "https://oauth2.googleapis.com/token", data=payload, timeout=30
     )
+    try:
+        token_data = response.json()
+    except ValueError:
+        token_data = {}
+
     if response.status_code >= 400:
+        # Report Google's error code and description, but never print credentials.
+        error_code = str(token_data.get("error", "unknown_error"))[:100]
+        error_description = str(
+            token_data.get("error_description", "No error description returned.")
+        )[:500]
         raise RuntimeError(
-            "Google OAuth token refresh failed. Check DRIVE_CLIENT_ID, "
-            "DRIVE_CLIENT_SECRET and DRIVE_REFRESH_TOKEN, and ensure the "
-            "refresh token was granted the Google Drive read-only scope."
+            f"Google OAuth token refresh failed (HTTP {response.status_code}; "
+            f"{error_code}): {error_description}. Verify that DRIVE_CLIENT_ID, "
+            "DRIVE_CLIENT_SECRET and DRIVE_REFRESH_TOKEN all belong to the same "
+            "OAuth client, and that the refresh token is still valid."
         )
-    token = response.json().get("access_token")
+
+    token = token_data.get("access_token")
     if not token:
-        raise RuntimeError("Google OAuth did not return an access token.")
+        error_code = str(token_data.get("error", "missing_access_token"))[:100]
+        raise RuntimeError(
+            f"Google OAuth did not return an access token ({error_code})."
+        )
     return token
 
 
