@@ -676,7 +676,8 @@ def render_clip(source_path, start, category, output_path):
         preset="medium", bitrate="4500k", audio_bitrate="192k", threads=2,
     )
 
-    final.close()
+    if final is not vertical:
+        final.close()
     if mixed_audio is not None:
         mixed_audio.close()
     if music is not None:
