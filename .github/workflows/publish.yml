@@ -42,11 +42,6 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
       - name: Install Deno JavaScript runtime for YouTube extraction
         uses: denoland/setup-deno@v2
         with:
@@ -59,6 +54,7 @@ jobs:
           python -m pip install --upgrade "yt-dlp[default]"
           yt-dlp --version
           deno --version
+          python -c "import imageio_ffmpeg; print('Bundled FFmpeg:', imageio_ffmpeg.get_ffmpeg_exe())"
 
       - name: Validate Python syntax
         run: python -m compileall -q .
