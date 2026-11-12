@@ -548,12 +548,12 @@ def candidate_starts(duration):
     duration = float(duration)
     if duration < CLIP_SECONDS + 5:
         raise RuntimeError(f"Episode is too short for a {CLIP_SECONDS}-second clip.")
-    # Sample up to 12 evenly distributed windows. This avoids downloading
-    # or scanning the entire episode locally.
+    # Sample up to 8 evenly distributed windows. This avoids downloading
+    # or scanning the entire episode locally and keeps vision requests bounded.
     last_start = max(0.0, duration - CLIP_SECONDS)
     if last_start <= 0:
         return [0.0]
-    return [round(last_start * i / 11, 2) for i in range(12)]
+    return [round(last_start * i / 7, 2) for i in range(8)]
 
 
 def frame_data(clip, second):
@@ -561,9 +561,9 @@ def frame_data(clip, second):
     import io
     frame = clip.get_frame(second)
     image = Image.fromarray(frame).convert("RGB")
-    image.thumbnail((640, 640))
+    image.thumbnail((512, 512))
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=78)
+    image.save(buffer, format="JPEG", quality=68)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
@@ -571,16 +571,17 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
-    model = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"
+    model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash").strip() or "google/gemini-2.5-flash"
     frames = []
     from PIL import Image
     import io
 
     for index, start in enumerate(starts):
-        # Four ordered samples help the vision model judge continuity.
+        # Three ordered samples keep the vision request compact while preserving
+        # enough temporal context to judge the scene.
         for frame_number, offset in enumerate((
-            CLIP_SECONDS * 0.15, CLIP_SECONDS * 0.38,
-            CLIP_SECONDS * 0.62, CLIP_SECONDS * 0.85,
+            CLIP_SECONDS * 0.20, CLIP_SECONDS * 0.50,
+            CLIP_SECONDS * 0.80,
         )):
             frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
             extract_stream_frame(stream, start + offset, frame_path, video_url=video_url)
@@ -616,7 +617,13 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
         json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0.2},
         timeout=120,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        # OpenRouter's 4xx response explains model/vision/payload validation failures.
+        detail = response.text[:1200].replace(api_key, "[REDACTED]")
+        raise RuntimeError(
+            f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
+            f"model={model}): {detail}"
+        )
     payload = response.json()
     raw = payload["choices"][0]["message"]["content"]
     if isinstance(raw, list):
