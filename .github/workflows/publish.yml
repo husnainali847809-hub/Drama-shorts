@@ -65,18 +65,6 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_MODEL: ${{ vars.NVIDIA_MODEL }}
-          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-          TOGETHER_MODEL: ${{ vars.TOGETHER_MODEL }}
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          MISTRAL_MODEL: ${{ vars.MISTRAL_MODEL }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_VISION_MODEL: ${{ vars.HF_VISION_MODEL }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_VISION_MODEL: ${{ vars.OPENAI_VISION_MODEL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openrouter/free' }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
