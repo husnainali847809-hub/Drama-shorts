@@ -193,9 +193,66 @@ def classify_local_video(video_path, work_dir):
         category = str(result.get("category", "")).strip().lower()
         if selected < 0 or selected >= len(starts) or category not in pipeline.ALLOWED_CATEGORIES:
             raise RuntimeError(f"AI returned invalid scene selection: {result}")
-        return starts[selected], category, str(result.get("reason", "")).strip()
+        return (
+            starts[selected],
+            category,
+            str(result.get("reason", "")).strip(),
+            str(result.get("scene_summary", "")).strip(),
+        )
     finally:
         clip.close()
+
+
+def clean_title_from_filename(filename):
+    """Use the supplied source title as the drama label; never invent a show name."""
+    title = Path(filename or "").stem
+    title = re.sub(r"\(\s*\d{3,4}p\s*\)", " ", title, flags=re.I)
+    title = re.sub(r"\b\d{3,4}p\b", " ", title, flags=re.I)
+    title = title.replace("_", " ").replace("-", " ")
+    title = re.sub(r"\b(official|video|full|hd|4k|1080p|720p|480p)\b", " ", title, flags=re.I)
+    title = re.sub(r"\s+", " ", title).strip(" ._-")
+    return title[:80] or "Pakistani Drama"
+
+
+def build_facebook_caption(source_name, category, reason="", scene_summary=""):
+    """Build a scene-specific caption with a grounded title and exactly five hashtags."""
+    category = str(category or "interesting").strip().lower()
+    allowed = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
+    if category not in allowed:
+        category = "interesting"
+
+    configured_title = os.getenv("DRAMA_TITLE", "").strip()
+    drama_title = configured_title or clean_title_from_filename(source_name)
+
+    scene_lines = {
+        "romantic": "A beautiful romantic moment filled with warmth and emotion. ❤️",
+        "emotional": "A powerful emotional moment that touches the heart. 💔",
+        "comedy": "A light-hearted moment that brings a smile. 😄",
+        "action": "An intense moment packed with action and energy. ⚡",
+        "suspense": "A gripping moment full of tension and suspense. 👀",
+        "interesting": "A memorable drama moment worth watching. ✨",
+    }
+    description = scene_lines[category]
+    # Use the model's visual summary only when it is short and grounded.
+    summary = re.sub(r"\s+", " ", str(scene_summary or "")).strip()
+    if summary and len(summary) <= 180:
+        description = summary.rstrip(".") + "."
+
+    hashtag_title = re.sub(r"[^A-Za-z0-9]", "", drama_title.title().replace(" ", ""))
+    hashtag_title = hashtag_title[:32] or "PakistaniDrama"
+    hashtags = [
+        f"#{hashtag_title}",
+        f"#{category.title()}Scene",
+        "#PakistaniDrama",
+        "#DramaClips",
+        "#DramaScenes",
+    ]
+    caption = (
+        f"{drama_title} | {category.title()} Scene\n\n"
+        f"{description}\n\n"
+        + " ".join(hashtags)
+    )
+    return caption
 
 
 def main():
@@ -216,13 +273,18 @@ def main():
         suffix = Path(safe_name).suffix.lower() or ".mp4"
         source_path = Path(work_dir) / ("drive_source_video" + suffix)
         download_video(token, item, source_path)
-        start, category, reason = classify_local_video(source_path, work_dir)
+        start, category, reason, scene_summary = classify_local_video(source_path, work_dir)
         log(f"AI selected {category} scene at {start:.1f}s: {reason or 'no reason returned'}")
         output_path = pipeline.OUTPUT_DIR / "pakistani_drama_clip.mp4"
         music_meta = pipeline.render_clip(source_path, start, category, output_path)
         public_url = pipeline.upload_cloudinary(output_path)
         from publisher.buffer import queue_facebook_reel
-        caption = f"{category.title()} scene. #DramaClips #ShortVideos"
+        caption = build_facebook_caption(
+            item.get("name", "Pakistani Drama"),
+            category,
+            reason=reason,
+            scene_summary=scene_summary,
+        )
         queued = queue_facebook_reel(public_url, caption)
         pipeline.save_history(history, item["id"])
         log(
