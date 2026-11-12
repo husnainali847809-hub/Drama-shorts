@@ -42,6 +42,18 @@ Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until
 
 Follow `assets/music/README.md`. Add authorized tracks to the matching mood folder and add the required licence sidecar JSON. The pipeline supports action, emotional, comedy, romantic, suspense, and interesting scenes. If the selected mood has no valid music track, the run stops instead of using unlicensed music.
 
+## 3A. Automatic professional editing styles
+
+The shared `editing_engine.py` is used by the Google Drive pipeline and the URL-based pipeline. It detects shot changes inside the selected clip and automatically chooses one of three treatments from the AI scene category:
+
+- **Clean story:** natural pacing and clean scene cuts.
+- **Dialogue-to-song:** for comedy/romantic scenes, estimates the first quiet gap in the opening dialogue and starts a matching licensed music track there; original dialogue remains audible.
+- **Cinematic:** for action, suspense, and emotional scenes, uses detected shot cuts with a subtle opening/closing fade.
+
+The mood folders under `assets/music/` are currently empty in the repository. Add music you created or are licensed to use to the matching category folder (MP3, WAV, M4A, or AAC). Without a matching track, the editor keeps the original drama audio and still renders the visual edit. It does not fetch copyrighted songs automatically.
+
+A separate `Editing Engine Checks` workflow runs Python syntax checks and verifies the three style mappings; it does not publish videos.
+
 ## 4. Configure GitHub Actions
 
 In GitHub: repository **Settings → Secrets and variables → Actions**.
