@@ -481,7 +481,8 @@ def main():
             return
         log(f"AI selected {category} scene at {start:.1f}s: {reason or 'no reason returned'}")
         output_path = pipeline.OUTPUT_DIR / "pakistani_drama_clip.mp4"
-        clip_seconds = pipeline.adaptive_clip_seconds(source_path, start, category)
+        clip_seconds = min(90, pipeline.adaptive_clip_seconds(source_path, start, category))
+        log(f"Facebook Reel duration safety cap applied: {clip_seconds}s (maximum 90s).")
         music_meta = pipeline.render_clip(
             source_path, start, category, output_path, clip_seconds=clip_seconds
         )
