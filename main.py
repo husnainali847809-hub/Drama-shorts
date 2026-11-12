@@ -564,8 +564,8 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
         "or plot facts that are not visible. Classify the visible mood as exactly one of: "
         "action, emotional, comedy, romantic, suspense, interesting. Return ONLY JSON "
         "with selected_candidate, category, reason, and scene_summary. "
-        '{"selected_candidate":0,"category":"interesting",'
-        '"reason":"clear character reaction","scene_summary":"two characters react to news"}.'
+        + '{"selected_candidate":0,"category":"interesting",'
+        + '"reason":"clear character reaction","scene_summary":"two characters react to news"}.'
     )
     content = [{"type": "text", "text": prompt}]
     for index, encoded in frames:
