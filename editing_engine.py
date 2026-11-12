@@ -1,8 +1,10 @@
 """Three-style professional short-video editor for user-owned or licensed footage."""
 import math
+import subprocess
 from pathlib import Path
 
 import cv2
+import imageio_ffmpeg
 import numpy as np
 from moviepy import (
     VideoFileClip,
@@ -77,38 +79,123 @@ def detect_scene_cuts(video_path, start, duration, max_cuts=14):
     return cuts
 
 
+def _music_profile(track):
+    """Measure rough energy and spectral brightness from the audio itself."""
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-i", str(track), "-t", "25", "-vn",
+        "-ac", "1", "-ar", "22050", "-f", "f32le", "pipe:1",
+    ]
+    result = subprocess.run(command, capture_output=True, timeout=75)
+    if result.returncode != 0 or not result.stdout:
+        raise RuntimeError("FFmpeg could not decode this music file.")
+    samples = np.frombuffer(result.stdout, dtype=np.float32)
+    if samples.size < 22050:
+        raise RuntimeError("Music file is too short to analyse.")
+    samples = np.nan_to_num(samples)
+    frame_size, hop = 2048, 1024
+    rms_values, centroids = [], []
+    window = np.hanning(frame_size).astype(np.float32)
+    frequencies = np.fft.rfftfreq(frame_size, d=1 / 22050)
+    for offset in range(0, len(samples) - frame_size, hop):
+        frame = samples[offset:offset + frame_size]
+        rms_values.append(float(np.sqrt(np.mean(frame * frame))))
+        spectrum = np.abs(np.fft.rfft(frame * window))
+        total = float(np.sum(spectrum))
+        if total > 1e-8:
+            centroids.append(float(np.sum(frequencies * spectrum) / total))
+    if not rms_values or not centroids:
+        raise RuntimeError("Could not calculate audio features.")
+    energy = min(1.0, float(np.percentile(rms_values, 75)) * 4.0)
+    brightness = min(1.0, float(np.median(centroids)) / 11025.0)
+    return {"energy": energy, "brightness": brightness}
+
+
+_MOOD_TARGETS = {
+    "comedy": (0.72, 0.58),
+    "romantic": (0.32, 0.42),
+    "emotional": (0.22, 0.28),
+    "suspense": (0.38, 0.24),
+    "action": (0.82, 0.72),
+    "interesting": (0.55, 0.52),
+}
+_MOOD_WORDS = {
+    "comedy": ("comedy", "funny", "comic", "playful", "happy", "fun"),
+    "romantic": ("romantic", "love", "soft", "sweet", "warm", "romance"),
+    "emotional": ("emotional", "sad", "piano", "heart", "slow", "emotive"),
+    "suspense": ("suspense", "tension", "thriller", "mystery", "dark"),
+    "action": ("action", "epic", "power", "battle", "intense", "energetic"),
+    "interesting": ("interesting", "upbeat", "curious", "light", "neutral"),
+}
+
+
+def _declared_track_mood(track):
+    """Read mood hints from both filename and any nested folder names."""
+    labels = set()
+    searchable = str(track.relative_to(MUSIC_ROOT)).lower().replace("-", "_").replace(" ", "_")
+    for mood, words in _MOOD_WORDS.items():
+        if any(word in searchable for word in words):
+            labels.add(mood)
+    return labels
+
+
 def find_music(category):
-    """Choose a suitable track from the single music folder using the AI scene category."""
-    if not MUSIC_ROOT.exists():
+    """Rank plausible tracks using mood labels plus measured audio features.
+
+    Audio analysis estimates energy and brightness; it does not understand lyrics
+    or story meaning, so clear mood labels remain important.
+    """
+    category = str(category or "interesting").lower()
+    if category not in _MOOD_TARGETS or not MUSIC_ROOT.exists():
         return None
 
-    # Search the dramas folder recursively so tracks can be stored either
-    # directly in dramas/ or inside mood/category subfolders.
     tracks = sorted(
         p for p in MUSIC_ROOT.rglob("*")
         if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
     )
     if not tracks:
+        log(f"No music files found under '{MUSIC_ROOT}'.")
         return None
 
-    mood_keywords = {
-        "comedy": ("comedy", "funny", "comic", "playful", "happy"),
-        "romantic": ("romantic", "love", "soft", "sweet", "warm"),
-        "emotional": ("emotional", "sad", "piano", "heart", "slow"),
-        "suspense": ("suspense", "tension", "thriller", "mystery", "dark"),
-        "action": ("action", "epic", "power", "battle", "intense"),
-        "interesting": ("interesting", "upbeat", "curious", "light"),
-    }
-    keywords = mood_keywords.get(str(category).lower(), ())
-    matching = [
-        track for track in tracks
-        if any(word in track.stem.lower() for word in keywords)
-    ]
-    chosen_pool = matching or tracks
-    chosen = chosen_pool[0]
-    log(f"Selected background track '{chosen.name}' for AI-detected mood '{category}'.")
-    return chosen
+    target_energy, target_brightness = _MOOD_TARGETS[category]
+    ranked = []
+    for track in tracks:
+        declared = _declared_track_mood(track)
+        if declared and category not in declared:
+            continue
+        try:
+            profile = _music_profile(track)
+        except Exception as exc:
+            log(f"Skipped unreadable music '{track.name}': {exc}")
+            continue
+        distance = (
+            abs(profile["energy"] - target_energy) * 0.65
+            + abs(profile["brightness"] - target_brightness) * 0.35
+        )
+        if category in declared:
+            distance = max(0.0, distance - 0.18)
+        ranked.append((distance, track, profile, bool(declared)))
 
+    if not ranked:
+        log(f"No analysable track matches '{category}'; keeping original audio.")
+        return None
+
+    ranked.sort(key=lambda item: (item[0], item[1].name.lower()))
+    distance, chosen, profile, labelled = ranked[0]
+    if not labelled and distance > 0.24:
+        log(
+            f"No confident '{category}' match (best acoustic score {distance:.2f}); "
+            "keeping original audio instead of choosing randomly."
+        )
+        return None
+
+    log(
+        f"Selected '{chosen.name}' for '{category}' scene "
+        f"(match={distance:.2f}, energy={profile['energy']:.2f}, "
+        f"brightness={profile['brightness']:.2f}, mood_label={labelled})."
+    )
+    return chosen
 
 def fit_vertical(clip):
     resized = clip.resized(height=1920)
