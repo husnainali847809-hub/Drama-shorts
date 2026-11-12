@@ -287,7 +287,10 @@ def main():
         start, category, reason, scene_summary = classify_local_video(source_path, work_dir)
         log(f"AI selected {category} scene at {start:.1f}s: {reason or 'no reason returned'}")
         output_path = pipeline.OUTPUT_DIR / "pakistani_drama_clip.mp4"
-        music_meta = pipeline.render_clip(source_path, start, category, output_path)
+        clip_seconds = pipeline.adaptive_clip_seconds(source_path, start, category)
+        music_meta = pipeline.render_clip(
+            source_path, start, category, output_path, clip_seconds=clip_seconds
+        )
         public_url = pipeline.upload_cloudinary(output_path)
         from publisher.buffer import queue_facebook_reel
         caption = build_facebook_caption(
@@ -300,7 +303,7 @@ def main():
         pipeline.save_history(history, item["id"])
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
-            f"file={item.get('name')}; music="
+            f"file={item.get('name')}; duration={clip_seconds}s; music="
             f"{music_meta.get('title') or 'original audio only'}"
         )
     if output_path.exists():
