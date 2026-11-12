@@ -1,6 +1,5 @@
 """Three-style professional short-video editor for user-owned or licensed footage."""
 import math
-import os
 from pathlib import Path
 
 import cv2
@@ -127,7 +126,6 @@ def make_music_layer(path, duration, start_at, volume):
     if track.duration < needed:
         repeats = int(math.ceil(needed / max(track.duration, 0.1)))
         looped = concatenate_audioclips([track] * repeats)
-        track.close()
         track = looped
     track = track.subclipped(0, needed).with_start(start_at).with_volume_scaled(volume)
     return track
@@ -155,10 +153,6 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             if right - left < 0.12:
                 continue
             part = selected.subclipped(left, right)
-            if style == "cinematic":
-                # Gentle fades on shot boundaries create a restrained cinematic rhythm.
-                fade = min(0.16, max(0.04, part.duration / 5))
-                part = part.with_effects([vfx.FadeIn(fade), vfx.FadeOut(fade)])
             pieces.append(part)
 
         if not pieces:
