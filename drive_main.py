@@ -123,22 +123,23 @@ def classify_local_video(video_path, work_dir):
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
-    model = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"
+    model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash").strip() or "google/gemini-2.5-flash"
 
     clip = VideoFileClip(str(video_path))
     try:
         starts = pipeline.candidate_starts(clip.duration)
         frames = []
         for index, start in enumerate(starts):
-            # Four ordered samples help verify scene continuity.
+            # Three ordered samples keep the vision request compact while preserving
+            # enough temporal context to judge the scene.
             for frame_number, offset in enumerate((
-                pipeline.CLIP_SECONDS * 0.15, pipeline.CLIP_SECONDS * 0.38,
-                pipeline.CLIP_SECONDS * 0.62, pipeline.CLIP_SECONDS * 0.85,
+                pipeline.CLIP_SECONDS * 0.20, pipeline.CLIP_SECONDS * 0.50,
+                pipeline.CLIP_SECONDS * 0.80,
             )):
                 frame = Image.fromarray(clip.get_frame(start + offset)).convert("RGB")
-                frame.thumbnail((640, 640))
+                frame.thumbnail((512, 512))
                 buffer = io.BytesIO()
-                frame.save(buffer, format="JPEG", quality=78)
+                frame.save(buffer, format="JPEG", quality=68)
                 frames.append((index, base64.b64encode(buffer.getvalue()).decode("ascii")))
 
         prompt = (
@@ -175,7 +176,13 @@ def classify_local_video(video_path, work_dir):
             },
             timeout=180,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # OpenRouter's 4xx response explains model/vision/payload validation failures.
+            detail = response.text[:1200].replace(api_key, "[REDACTED]")
+            raise RuntimeError(
+                f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
+                f"model={model}): {detail}"
+            )
         payload = response.json()
         raw = payload["choices"][0]["message"]["content"]
         if isinstance(raw, list):
