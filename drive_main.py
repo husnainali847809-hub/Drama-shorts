@@ -124,7 +124,7 @@ def classify_local_video(video_path, work_dir):
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
-    model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash").strip() or "google/gemini-2.5-flash"
+    model = "google/gemini-2.5-flash"  # Pin a real vision model; never route through openrouter/free.
 
     clip = VideoFileClip(str(video_path))
     try:
@@ -146,7 +146,7 @@ def classify_local_video(video_path, work_dir):
         prompt = (
             "You are an expert drama-scene editor. User's scene preference: "
             + (pipeline.SCENE_PREFERENCE or "Choose the most coherent engaging story moment.")
-            + " Each candidate contains four frames in time order. Select the strongest "
+            + " Each candidate contains three frames in time order. Select the strongest "
             "continuous scene: frames should belong to one understandable moment, with "
             "a clear emotional or story beat. Prefer meaningful character interaction, "
             "visible action, reaction, or payoff. Reject unrelated shots, empty establishing "
