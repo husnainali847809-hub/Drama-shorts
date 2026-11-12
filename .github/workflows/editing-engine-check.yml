@@ -1,0 +1,48 @@
+name: Editing Engine Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "editing_engine.py"
+      - "main.py"
+      - ".github/workflows/editing-engine-check.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "editing_engine.py"
+      - "main.py"
+      - "requirements.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install editor dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compile all Python files
+        run: python -m compileall -q .
+      - name: Smoke-test editing styles
+        run: |
+          python - <<'PY'
+          from editing_engine import choose_style
+          assert choose_style("comedy") == "dialogue_to_song"
+          assert choose_style("romantic") == "dialogue_to_song"
+          assert choose_style("action") == "cinematic"
+          assert choose_style("suspense") == "cinematic"
+          assert choose_style("emotional") == "cinematic"
+          assert choose_style("interesting") == "clean_story"
+          print("Editing engine import and all three style mappings passed.")
+          PY
