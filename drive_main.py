@@ -235,51 +235,77 @@ def classify_local_video(video_path, work_dir):
             # even though OPENROUTER_MODEL was configured as openrouter/free.
             openrouter_model = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"
             log(f"Using OpenRouter fallback model '{openrouter_model}' for scene classification.")
-            fallback_response = post_with_retry(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {openrouter_api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/",
-                    "X-Title": "DramaClips Scene Classifier",
-                },
-                json={
-                    "model": openrouter_model,
-                    "messages": [{"role": "user", "content": content}],
-                    "temperature": 0.2,
-                    "max_tokens": 450,
-                },
-                timeout=(30, 180),
+            request_headers = {
+                "Authorization": f"Bearer {openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/",
+                "X-Title": "DramaClips Scene Classifier",
+            }
+            # Some free reasoning models spend a small output budget on internal
+            # reasoning and return content=null with finish_reason=length. Give the
+            # actual JSON answer enough room and request no reasoning where supported.
+            request_payload = {
+                "model": openrouter_model,
+                "messages": [{"role": "user", "content": content}],
+                "temperature": 0.1,
+                "max_tokens": 1400,
+                "reasoning": {"effort": "none"},
+            }
+
+            last_empty_reason = "unknown"
+            for response_attempt in range(1, 3):
+                fallback_response = post_with_retry(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=request_headers,
+                    json=request_payload,
+                    timeout=(30, 180),
+                )
+                if fallback_response.status_code >= 400:
+                    detail = fallback_response.text[:1000].replace(
+                        openrouter_api_key, "[REDACTED]"
+                    )
+                    raise RuntimeError(
+                        f"OpenRouter scene-classification failed "
+                        f"(HTTP {fallback_response.status_code}; "
+                        f"model={openrouter_model}): {detail}"
+                    )
+                try:
+                    fallback_payload = fallback_response.json()
+                    choices = fallback_payload.get("choices") or []
+                    choice = choices[0] if choices else {}
+                    message = choice.get("message") or {}
+                    raw_content = message.get("content")
+                    if isinstance(raw_content, str) and raw_content.strip():
+                        return raw_content
+                    if isinstance(raw_content, list):
+                        text_parts = [
+                            str(part.get("text", "")) for part in raw_content
+                            if isinstance(part, dict) and part.get("type") == "text"
+                        ]
+                        joined = "".join(text_parts).strip()
+                        if joined:
+                            return joined
+                    last_empty_reason = (
+                        f"finish_reason={choice.get('finish_reason')}; "
+                        f"provider={fallback_payload.get('provider', 'unknown')}; "
+                        f"model={fallback_payload.get('model', openrouter_model)}"
+                    )
+                except (ValueError, KeyError, TypeError, IndexError) as exc:
+                    last_empty_reason = f"invalid response JSON/shape: {exc}"
+
+                if response_attempt == 1:
+                    # Retry once with a larger answer budget; do not expose or parse
+                    # private reasoning as if it were the requested scene JSON.
+                    request_payload["max_tokens"] = 2200
+                    log(
+                        "OpenRouter returned no final answer "
+                        f"({last_empty_reason}); retrying once with a larger output budget."
+                    )
+
+            raise RuntimeError(
+                "OpenRouter returned no final answer after two attempts "
+                f"({last_empty_reason}). The clip was not published."
             )
-            if fallback_response.status_code >= 400:
-                detail = fallback_response.text[:1200].replace(
-                    openrouter_api_key, "[REDACTED]"
-                )
-                raise RuntimeError(
-                    f"OpenRouter scene-classification failed "
-                    f"(HTTP {fallback_response.status_code}; "
-                    f"model={openrouter_model}): {detail}"
-                )
-            try:
-                fallback_payload = fallback_response.json()
-                choices = fallback_payload.get("choices") or []
-                message = choices[0].get("message") if choices else None
-                raw_content = message.get("content") if isinstance(message, dict) else None
-                if isinstance(raw_content, str) and raw_content.strip():
-                    return raw_content
-                if isinstance(raw_content, list):
-                    text_parts = [
-                        str(part.get("text", "")) for part in raw_content
-                        if isinstance(part, dict) and part.get("type") == "text"
-                    ]
-                    if "".join(text_parts).strip():
-                        return "".join(text_parts)
-                raise ValueError("OpenRouter returned no text content in choices[0].message.")
-            except (ValueError, KeyError, TypeError, IndexError) as exc:
-                raise RuntimeError(
-                    f"OpenRouter returned an invalid response format: {exc}. "
-                    f"Response preview: {fallback_response.text[:500]}"
-                ) from exc
 
         if gemini_api_key:
             # Prefer Google's API directly. If it remains unavailable after retries,
