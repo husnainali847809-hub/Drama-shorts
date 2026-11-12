@@ -1,6 +1,9 @@
 """Three-style professional short-video editor for user-owned or licensed footage."""
 import math
 import subprocess
+import tempfile
+import wave
+import json
 from pathlib import Path
 
 import cv2
@@ -10,6 +13,8 @@ from moviepy import (
     VideoFileClip,
     AudioFileClip,
     CompositeAudioClip,
+    CompositeVideoClip,
+    ColorClip,
     concatenate_videoclips,
     concatenate_audioclips,
     vfx,
@@ -151,11 +156,23 @@ def find_music(category):
     if category not in _MOOD_TARGETS:
         return None
 
-    tracks = sorted({
-        p for root in MUSIC_ROOTS if root.exists()
-        for p in root.rglob("*")
-        if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
-    })
+    # Only use user-provided tracks when a neighbouring .license.json
+    # explicitly confirms permission to reuse the audio.
+    tracks = []
+    for root in MUSIC_ROOTS:
+        if not root.exists():
+            continue
+        for track in root.rglob("*"):
+            if not track.is_file() or track.suffix.lower() not in AUDIO_EXTENSIONS:
+                continue
+            licence_file = track.with_suffix(".license.json")
+            try:
+                licence = json.loads(licence_file.read_text(encoding="utf-8"))
+                if licence.get("reuse_permission_confirmed") is True:
+                    tracks.append(track)
+            except (OSError, ValueError, AttributeError):
+                continue
+    tracks = sorted(tracks)
     if not tracks:
         searched = ", ".join(str(root.relative_to(PROJECT_ROOT)) for root in MUSIC_ROOTS)
         log(f"No MP3/audio tracks found. Checked folders: {searched}.")
@@ -203,15 +220,85 @@ def find_music(category):
     return chosen
 
 def fit_vertical(clip):
-    resized = clip.resized(height=1920)
-    if resized.w < 1080:
-        resized = resized.resized(width=1080)
-    return resized.cropped(
-        x_center=resized.w / 2,
-        y_center=resized.h / 2,
-        width=1080,
-        height=1920,
+    """Fit the entire source inside a 9:16 canvas without cutting off the scene."""
+    scale = min(1080.0 / float(clip.w), 1920.0 / float(clip.h))
+    target_width = max(1, int(round(float(clip.w) * scale)))
+    target_height = max(1, int(round(float(clip.h) * scale)))
+    foreground = clip.resized(new_size=(target_width, target_height))
+    background = ColorClip(
+        size=(1080, 1920),
+        color=(10, 10, 10),
+        duration=float(clip.duration),
     )
+    # Letterbox/pillarbox with a dark neutral canvas instead of zoom-cropping.
+    return CompositeVideoClip(
+        [background, foreground.with_position(("center", "center"))],
+        size=(1080, 1920),
+    ).with_duration(float(clip.duration))
+
+
+def generate_original_music(category, duration, destination):
+    """Create a simple, original instrumental bed when no licensed track is available."""
+    sample_rate = 22050
+    total_samples = max(sample_rate, int(float(duration) * sample_rate))
+    presets = {
+        "romantic": [
+            (220.00, 261.63, 329.63), (196.00, 246.94, 293.66),
+            (174.61, 220.00, 261.63), (196.00, 246.94, 293.66),
+        ],
+        "emotional": [
+            (174.61, 220.00, 261.63), (146.83, 196.00, 233.08),
+            (164.81, 196.00, 246.94), (146.83, 174.61, 220.00),
+        ],
+        "comedy": [
+            (261.63, 329.63, 392.00), (293.66, 369.99, 440.00),
+            (329.63, 392.00, 493.88), (293.66, 369.99, 440.00),
+        ],
+        "suspense": [
+            (110.00, 130.81, 164.81), (98.00, 123.47, 146.83),
+            (103.83, 130.81, 155.56), (98.00, 116.54, 146.83),
+        ],
+        "action": [
+            (130.81, 164.81, 196.00), (146.83, 185.00, 220.00),
+            (164.81, 207.65, 246.94), (146.83, 185.00, 220.00),
+        ],
+        "interesting": [
+            (220.00, 277.18, 329.63), (196.00, 246.94, 293.66),
+            (246.94, 311.13, 369.99), (196.00, 246.94, 293.66),
+        ],
+    }
+    chords = presets.get(str(category or "interesting").lower(), presets["interesting"])
+    times = np.arange(total_samples, dtype=np.float32) / float(sample_rate)
+    signal = np.zeros(total_samples, dtype=np.float32)
+    chord_indices = (times // 4.0).astype(np.int32) % len(chords)
+    for chord_index, notes in enumerate(chords):
+        mask = chord_indices == chord_index
+        local_times = times[mask]
+        if local_times.size == 0:
+            continue
+        chord_signal = np.zeros(local_times.size, dtype=np.float32)
+        for note in notes:
+            chord_signal += (
+                np.sin(2.0 * np.pi * note * local_times)
+                + 0.16 * np.sin(2.0 * np.pi * note * 2.0 * local_times)
+            ) / 3.0
+        signal[mask] = chord_signal
+    # Gentle pulsing and clean fades keep the bed underneath spoken dialogue.
+    signal *= (0.78 + 0.22 * np.sin(2.0 * np.pi * 0.16 * times))
+    fade_samples = min(sample_rate, total_samples // 2)
+    if fade_samples:
+        signal[:fade_samples] *= np.linspace(0.0, 1.0, fade_samples, dtype=np.float32)
+        signal[-fade_samples:] *= np.linspace(1.0, 0.0, fade_samples, dtype=np.float32)
+    peak = float(np.max(np.abs(signal))) if signal.size else 0.0
+    if peak > 0:
+        signal *= 0.22 / peak
+    pcm = np.clip(signal * 32767.0, -32768, 32767).astype("<i2")
+    with wave.open(str(destination), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(sample_rate)
+        output.writeframes(pcm.tobytes())
+    return Path(destination)
 
 
 def find_first_dialogue_pause(audio, duration, fallback=3.5):
@@ -256,7 +343,8 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
     music = None
     mixed_audio = None
     rendered = None
-    music_meta = {"title": "Original dialogue/audio only", "style": choose_style(category)}
+    generated_music_dir = None
+    music_meta = {"title": "Original mood-matched instrumental", "style": choose_style(category)}
     try:
         end = min(float(start) + float(clip_seconds), source.duration)
         selected = source.subclipped(float(start), end)
@@ -283,24 +371,36 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             vertical = vertical.with_effects([vfx.FadeIn(0.25), vfx.FadeOut(0.35)])
 
         music_path = find_music(category)
+        if music_path is None:
+            generated_music_dir = tempfile.TemporaryDirectory(prefix="drama-original-music-")
+            music_path = generate_original_music(
+                category,
+                vertical.duration,
+                Path(generated_music_dir.name) / f"{category}_original_instrumental.wav",
+            )
+            log(f"No verified licensed track for '{category}'; generated an original mood-matched instrumental.")
+            music_meta = {
+                "title": f"Original {category} instrumental",
+                "style": style,
+                "generated": True,
+            }
+
         audio_layers = []
         if vertical.audio is not None:
             audio_layers.append(vertical.audio.with_volume_scaled(1.0))
 
-        if music_path:
-            # For dialogue-to-song edits, leave the opening line clear, then bring
-            # the licensed song in underneath the continuing original dialogue.
-            music_start = find_first_dialogue_pause(vertical.audio, vertical.duration) if style == "dialogue_to_song" else 0.0
-            music_volume = 0.22 if style == "dialogue_to_song" else 0.13
-            music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
-            audio_layers.append(music)
+        # Keep opening dialogue audible for dialogue-led scenes; use a quiet
+        # instrumental bed for every category rather than leaving music absent.
+        music_start = find_first_dialogue_pause(vertical.audio, vertical.duration) if style == "dialogue_to_song" else 0.0
+        music_volume = 0.18 if style == "dialogue_to_song" else 0.12
+        music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
+        audio_layers.append(music)
+        if not music_meta.get("generated"):
             music_meta = {
                 "title": music_path.stem,
                 "style": style,
                 "music_start_seconds": music_start,
             }
-        else:
-            log(f"No licensed music file found for '{category}'; retaining original audio.")
 
         rendered = vertical
         if audio_layers:
@@ -328,6 +428,8 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             mixed_audio.close()
         if music is not None:
             music.close()
+        if generated_music_dir is not None:
+            generated_music_dir.cleanup()
         if vertical is not None:
             vertical.close()
         if selected is not None:
