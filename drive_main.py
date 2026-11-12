@@ -258,7 +258,7 @@ def classify_local_video(video_path, work_dir):
                 raise RuntimeError(
                     f"OpenRouter scene-classification failed "
                     f"(HTTP {fallback_response.status_code}; "
-                    f"model=google/gemini-3.8-flash): {detail}"
+                    f"model={openrouter_model}): {detail}"
                 )
             try:
                 fallback_payload = fallback_response.json()
