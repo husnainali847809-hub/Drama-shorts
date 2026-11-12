@@ -13,7 +13,7 @@ from moviepy import (
     vfx,
 )
 
-MUSIC_ROOT = Path(__file__).resolve().parent / "assets" / "music"
+MUSIC_ROOT = Path(__file__).resolve().parent / "dramas"
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac"}
 
 
@@ -82,8 +82,10 @@ def find_music(category):
     if not MUSIC_ROOT.exists():
         return None
 
+    # Search the dramas folder recursively so tracks can be stored either
+    # directly in dramas/ or inside mood/category subfolders.
     tracks = sorted(
-        p for p in MUSIC_ROOT.iterdir()
+        p for p in MUSIC_ROOT.rglob("*")
         if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
     )
     if not tracks:
