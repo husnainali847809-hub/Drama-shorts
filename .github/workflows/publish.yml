@@ -9,6 +9,17 @@ on:
     - cron: "0 13 * * *"
     - cron: "0 16 * * *"
   workflow_dispatch:
+    inputs:
+      clip_duration:
+        description: "Output duration (seconds)"
+        required: true
+        default: "60"
+        type: choice
+        options:
+          - "30"
+          - "45"
+          - "60"
+          - "180"
 
 permissions:
   contents: read
@@ -73,7 +84,8 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           CLOUDINARY_FOLDER: pakistani-drama-clips
-          CLIP_SECONDS: "85"
+          CLIP_SECONDS: ${{ github.event.inputs.clip_duration || '60' }}
+          SCENE_PREFERENCE: ${{ vars.SCENE_PREFERENCE }}
           DRIVE_CLIENT_ID: ${{ secrets.DRIVE_CLIENT_ID }}
           DRIVE_CLIENT_SECRET: ${{ secrets.DRIVE_CLIENT_SECRET }}
           DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
