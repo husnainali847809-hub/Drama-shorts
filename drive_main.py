@@ -130,9 +130,11 @@ def classify_local_video(video_path, work_dir):
         starts = pipeline.candidate_starts(clip.duration)
         frames = []
         for index, start in enumerate(starts):
-            for frame_number, offset in enumerate(
-                (pipeline.CLIP_SECONDS * 0.25, pipeline.CLIP_SECONDS * 0.70)
-            ):
+            # Four ordered samples help verify scene continuity.
+            for frame_number, offset in enumerate((
+                pipeline.CLIP_SECONDS * 0.15, pipeline.CLIP_SECONDS * 0.38,
+                pipeline.CLIP_SECONDS * 0.62, pipeline.CLIP_SECONDS * 0.85,
+            )):
                 frame = Image.fromarray(clip.get_frame(start + offset)).convert("RGB")
                 frame.thumbnail((640, 640))
                 buffer = io.BytesIO()
@@ -140,12 +142,18 @@ def classify_local_video(video_path, work_dir):
                 frames.append((index, base64.b64encode(buffer.getvalue()).decode("ascii")))
 
         prompt = (
-            "You are selecting a short engaging scene from a user-provided video. "
-            "Inspect frames grouped by candidate number. Choose the most engaging "
-            "coherent candidate. Classify it as exactly one of: action, emotional, "
-            "comedy, romantic, suspense, interesting. Do not invent plot details. "
-            'Return ONLY JSON: {"selected_candidate":0,"category":"interesting",'
-            '"reason":"brief visual reason"}. Candidate number is shown before each pair.'
+            "You are an expert drama-scene editor. User's scene preference: "
+            + (pipeline.SCENE_PREFERENCE or "Choose the most coherent engaging story moment.")
+            + " Each candidate contains four frames in time order. Select the strongest "
+            "continuous scene: frames should belong to one understandable moment, with "
+            "a clear emotional or story beat. Prefer meaningful character interaction, "
+            "visible action, reaction, or payoff. Reject unrelated shots, empty establishing "
+            "shots, black frames, and candidates with confusing jumps. Do not infer dialogue "
+            "or plot facts that are not visible. Classify the visible mood as exactly one of: "
+            "action, emotional, comedy, romantic, suspense, interesting. Return ONLY JSON "
+            "with selected_candidate, category, reason, and scene_summary. "
+            '{"selected_candidate":0,"category":"interesting",'
+            '"reason":"clear character reaction","scene_summary":"two characters react to news"}.
         )
         content = [{"type": "text", "text": prompt}]
         for index, encoded in frames:
