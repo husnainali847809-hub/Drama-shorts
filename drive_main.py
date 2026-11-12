@@ -69,6 +69,10 @@ def drive_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+class NoUnusedSceneWindows(RuntimeError):
+    """Raised when this episode has no remaining distinct candidate windows."""
+
+
 def newest_unprocessed_video(token, history):
     folder_id = required_env("DRIVE_FOLDER_ID")
     params = {
@@ -176,7 +180,7 @@ def post_with_retry(url, *, max_attempts=5, **kwargs):
     raise RuntimeError(f"AI provider request failed: {last_error}")
 
 
-def classify_local_video(video_path, work_dir):
+def classify_local_video(video_path, work_dir, excluded_starts=None):
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not gemini_api_key and not openrouter_api_key:
@@ -189,6 +193,16 @@ def classify_local_video(video_path, work_dir):
     clip = VideoFileClip(str(video_path))
     try:
         starts = pipeline.candidate_starts(clip.duration)
+        excluded_starts = [float(value) for value in (excluded_starts or [])]
+        starts = [
+            candidate for candidate in starts
+            if all(abs(candidate - previous) >= 100.0 for previous in excluded_starts)
+        ]
+        if not starts:
+            raise NoUnusedSceneWindows(
+                "This source has no remaining distinct scene windows; it will be marked complete."
+            )
+        log(f"Checking {len(starts)} unused candidate windows for this episode.")
         frames = []
         for index, start in enumerate(starts):
             # Three ordered samples keep the vision request compact while preserving
@@ -467,12 +481,16 @@ def main():
         suffix = Path(safe_name).suffix.lower() or ".mp4"
         source_path = Path(work_dir) / ("drive_source_video" + suffix)
         download_video(token, item, source_path)
+        prior_starts = history.get("video_clips", {}).get(item["id"], [])
         try:
-            start, category, reason, scene_summary = classify_local_video(source_path, work_dir)
+            start, category, reason, scene_summary = classify_local_video(
+                source_path, work_dir, excluded_starts=prior_starts
+            )
+        except NoUnusedSceneWindows as exc:
+            pipeline.save_history(history, item["id"])
+            log(f"EPISODE COMPLETE: {exc}")
+            return
         except Exception as exc:
-            # Any provider, network, timeout, malformed-response, or parsing failure
-            # must fail closed. Never render from a guessed scene or mark the source
-            # processed. The next scheduled run can safely retry it.
             log(
                 f"SCENE ANALYSIS DEFERRED ({type(exc).__name__}): {str(exc)[:700]}. "
                 "No clip was rendered or queued; this Drive video remains unprocessed "
@@ -495,11 +513,11 @@ def main():
             scene_summary=scene_summary,
         )
         queued = queue_facebook_reel(public_url, caption)
-        pipeline.save_history(history, item["id"])
+        pipeline.save_history(history, item["id"], clip_start=start, max_clips=4)
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
             f"file={item.get('name')}; duration={clip_seconds}s; music="
-            f"{music_meta.get('title') or 'original audio only'}"
+            f"{music_meta.get('title') or 'original instrumental'}"
         )
     if output_path.exists():
         output_path.unlink()
