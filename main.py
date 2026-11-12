@@ -676,15 +676,52 @@ def reusable_music_track(category):
     return None, {"title": "Original audio only", "attribution": ""}
 
 
-def render_clip(source_path, start, category, output_path):
+def adaptive_clip_seconds(source_path, start, category):
+    """Choose a category-aware scene length, always capped at three minutes."""
+    from moviepy import VideoFileClip
+
+    # Keep a coherent story beat long enough to develop, without forcing
+    # every mood into the same duration.
+    targets = {
+        "comedy": 45,
+        "interesting": 60,
+        "action": 75,
+        "romantic": 90,
+        "suspense": 90,
+        "emotional": 120,
+    }
+    target = targets.get(str(category or "interesting").lower(), 60)
+    source = VideoFileClip(str(source_path))
+    try:
+        available = max(0.0, float(source.duration) - float(start))
+    finally:
+        source.close()
+
+    duration = min(float(target), available, 180.0)
+    duration = int(duration)
+    if duration < 10:
+        raise RuntimeError(
+            f"Selected scene has only {duration} seconds available; "
+            "at least 10 seconds are needed to create a clip."
+        )
+    log(
+        f"Adaptive scene duration: {duration}s "
+        f"(category={category}, target={target}s, hard_max=180s)."
+    )
+    return duration
+
+
+def render_clip(source_path, start, category, output_path, clip_seconds=None):
     """Use the shared three-style professional editing engine."""
     from editing_engine import render_professional_clip
+    duration = int(clip_seconds or adaptive_clip_seconds(source_path, start, category))
+    duration = max(10, min(duration, 180))
     return render_professional_clip(
         source_path,
         start,
         category,
         output_path,
-        clip_seconds=CLIP_SECONDS,
+        clip_seconds=duration,
     )
 
 def upload_cloudinary(video_path):
