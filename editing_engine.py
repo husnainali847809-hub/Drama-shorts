@@ -15,7 +15,8 @@ from moviepy import (
     vfx,
 )
 
-MUSIC_ROOT = Path(__file__).resolve().parent / "dramas"
+PROJECT_ROOT = Path(__file__).resolve().parent
+MUSIC_ROOTS = [PROJECT_ROOT / "dramas", PROJECT_ROOT / "music", PROJECT_ROOT / "songs", PROJECT_ROOT / "assets" / "music", PROJECT_ROOT / "assets" / "songs"]
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac"}
 
 
@@ -133,7 +134,7 @@ _MOOD_WORDS = {
 def _declared_track_mood(track):
     """Read mood hints from both filename and any nested folder names."""
     labels = set()
-    searchable = str(track.relative_to(MUSIC_ROOT)).lower().replace("-", "_").replace(" ", "_")
+    searchable = str(track.relative_to(PROJECT_ROOT)).lower().replace("-", "_").replace(" ", "_")
     for mood, words in _MOOD_WORDS.items():
         if any(word in searchable for word in words):
             labels.add(mood)
@@ -147,16 +148,19 @@ def find_music(category):
     or story meaning, so clear mood labels remain important.
     """
     category = str(category or "interesting").lower()
-    if category not in _MOOD_TARGETS or not MUSIC_ROOT.exists():
+    if category not in _MOOD_TARGETS:
         return None
 
-    tracks = sorted(
-        p for p in MUSIC_ROOT.rglob("*")
+    tracks = sorted({
+        p for root in MUSIC_ROOTS if root.exists()
+        for p in root.rglob("*")
         if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
-    )
+    })
     if not tracks:
-        log(f"No music files found under '{MUSIC_ROOT}'.")
+        searched = ", ".join(str(root.relative_to(PROJECT_ROOT)) for root in MUSIC_ROOTS)
+        log(f"No MP3/audio tracks found. Checked folders: {searched}.")
         return None
+    log(f"Music matcher found {len(tracks)} audio file(s); evaluating mood labels and audio features for '{category}'.")
 
     target_energy, target_brightness = _MOOD_TARGETS[category]
     ranked = []
