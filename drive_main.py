@@ -358,19 +358,19 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     provider_specs = [
         ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions",
-         os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()),
+         (os.getenv("GROQ_MODEL", "").strip() or "meta-llama/llama-4-scout-17b-16e-instruct")),
         ("NVIDIA NIM", "NVIDIA_API_KEY", "https://integrate.api.nvidia.com/v1/chat/completions",
-         os.getenv("NVIDIA_MODEL", "meta/llama-3.2-90b-vision-instruct").strip()),
+         (os.getenv("NVIDIA_MODEL", "").strip() or "meta/llama-3.2-90b-vision-instruct")),
         ("Together AI", "TOGETHER_API_KEY", "https://api.together.xyz/v1/chat/completions",
-         os.getenv("TOGETHER_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct").strip()),
+         (os.getenv("TOGETHER_MODEL", "").strip() or "Qwen/Qwen2.5-VL-72B-Instruct")),
         ("Mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1/chat/completions",
-         os.getenv("MISTRAL_MODEL", "pixtral-large-latest").strip()),
+         (os.getenv("MISTRAL_MODEL", "").strip() or "pixtral-large-latest")),
         ("Hugging Face", "HF_TOKEN", "https://router.huggingface.co/v1/chat/completions",
-         os.getenv("HF_VISION_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct").strip()),
+         (os.getenv("HF_VISION_MODEL", "").strip() or "Qwen/Qwen2.5-VL-72B-Instruct")),
         ("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1/chat/completions",
-         os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini").strip()),
+         (os.getenv("OPENAI_VISION_MODEL", "").strip() or "gpt-4o-mini")),
         ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions",
-         os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"),
+         (os.getenv("OPENROUTER_MODEL", "").strip() or "openrouter/free") or "openrouter/free"),
     ]
 
     clip = VideoFileClip(str(video_path))
@@ -426,7 +426,7 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
         # the whole project, but another available model can still respond.
         if gemini_api_key:
             gemini_models = []
-            configured = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+            configured = (os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.8-flash")
             for candidate in [configured, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
                 if candidate and candidate not in gemini_models:
                     gemini_models.append(candidate)
