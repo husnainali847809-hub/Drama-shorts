@@ -396,7 +396,17 @@ def main():
         suffix = Path(safe_name).suffix.lower() or ".mp4"
         source_path = Path(work_dir) / ("drive_source_video" + suffix)
         download_video(token, item, source_path)
-        start, category, reason, scene_summary = classify_local_video(source_path, work_dir)
+        try:
+            start, category, reason, scene_summary = classify_local_video(source_path, work_dir)
+        except RuntimeError as exc:
+            # Provider outages or exhausted fallback credits must not crash the run.
+            # Do not mark the Drive file as processed: the next scheduled run retries it.
+            log(
+                f"SCENE ANALYSIS DEFERRED: {str(exc)[:500]}. "
+                "No clip was rendered or queued; this Drive video remains unprocessed "
+                "and will be retried on the next run."
+            )
+            return
         log(f"AI selected {category} scene at {start:.1f}s: {reason or 'no reason returned'}")
         output_path = pipeline.OUTPUT_DIR / "pakistani_drama_clip.mp4"
         clip_seconds = pipeline.adaptive_clip_seconds(source_path, start, category)
