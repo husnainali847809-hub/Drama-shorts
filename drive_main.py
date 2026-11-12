@@ -356,22 +356,7 @@ def _local_visual_fallback(frames, starts):
 def classify_local_video(video_path, work_dir, excluded_starts=None):
     """Try configured vision providers in order, then use local CV as final fallback."""
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    provider_specs = [
-        ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions",
-         (os.getenv("GROQ_MODEL", "").strip() or "meta-llama/llama-4-scout-17b-16e-instruct")),
-        ("NVIDIA NIM", "NVIDIA_API_KEY", "https://integrate.api.nvidia.com/v1/chat/completions",
-         (os.getenv("NVIDIA_MODEL", "").strip() or "meta/llama-3.2-90b-vision-instruct")),
-        ("Together AI", "TOGETHER_API_KEY", "https://api.together.xyz/v1/chat/completions",
-         (os.getenv("TOGETHER_MODEL", "").strip() or "Qwen/Qwen2.5-VL-72B-Instruct")),
-        ("Mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1/chat/completions",
-         (os.getenv("MISTRAL_MODEL", "").strip() or "pixtral-large-latest")),
-        ("Hugging Face", "HF_TOKEN", "https://router.huggingface.co/v1/chat/completions",
-         (os.getenv("HF_VISION_MODEL", "").strip() or "Qwen/Qwen2.5-VL-72B-Instruct")),
-        ("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1/chat/completions",
-         (os.getenv("OPENAI_VISION_MODEL", "").strip() or "gpt-4o-mini")),
-        ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions",
-         (os.getenv("OPENROUTER_MODEL", "").strip() or "openrouter/free") or "openrouter/free"),
-    ]
+
 
     clip = VideoFileClip(str(video_path))
     try:
@@ -493,25 +478,77 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
 def clean_title_from_filename(filename):
     """Use the supplied source title as the drama label; never invent a show name."""
     title = Path(filename or "").stem
-    title = re.sub(r"\(\s*\d{3,4}p\s*\)", " ", title, flags=re.I)
-    title = re.sub(r"\b\d{3,4}p\b", " ", title, flags=re.I)
-    title = title.replace("_", " ").replace("-", " ")
-    title = re.sub(r"\b(official|video|full|hd|4k|1080p|720p|480p)\b", " ", title, flags=re.I)
-    title = re.sub(r"\s+", " ", title).strip(" ._-")
-    return title[:80] or "Pakistani Drama"
+    title = re.sub(r"\(\s*\d{3,        # Use only the two AI services already present in this system.
+        # Discover free vision models using the existing OpenRouter key.
+        openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if openrouter_key:
+            model_candidates = []
+            configured_model = os.getenv("OPENROUTER_MODEL", "").strip()
+            if configured_model:
+                model_candidates.append(configured_model)
+            try:
+                catalog_response = requests.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers={"Authorization": f"Bearer {openrouter_key}"},
+                    timeout=(15, 30),
+                )
+                if catalog_response.status_code < 400:
+                    catalog = catalog_response.json().get("data", [])
+                    free_vision_models = []
+                    for item in catalog:
+                        architecture = item.get("architecture") or {}
+                        pricing = item.get("pricing") or {}
+                        modalities = architecture.get("input_modalities") or []
+                        prompt_price = str(pricing.get("prompt", ""))
+                        completion_price = str(pricing.get("completion", ""))
+                        model_id = str(item.get("id", "")).strip()
+                        if (
+                            model_id
+                            and "image" in modalities
+                            and prompt_price in {"0", "0.0", "0.000000"}
+                            and completion_price in {"0", "0.0", "0.000000"}
+                        ):
+                            free_vision_models.append(model_id)
+                    for model_id in free_vision_models:
+                        if model_id not in model_candidates:
+                            model_candidates.append(model_id)
+                else:
+                    errors.append(
+                        f"OpenRouter model catalog HTTP {catalog_response.status_code}: "
+                        f"{catalog_response.text[:180]}"
+                    )
+            except Exception as exc:
+                errors.append(f"OpenRouter model discovery: {str(exc)[:180]}")
 
+            # A daily free-tier quota applies across free routes. Stop on a
+            # hard quota response rather than repeatedly calling the same limit.
+            for model in model_candidates[:8]:
+                try:
+                    log(f"Trying available OpenRouter vision model '{model}'.")
+                    raw = _openai_vision_request(
+                        "OpenRouter",
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        openrouter_key,
+                        model,
+                        openai_content,
+                    )
+                    result = _validate_scene_result(raw, starts)
+                    log(f"Scene classification succeeded with OpenRouter ({model}).")
+                    return result
+                except Exception as exc:
+                    detail = str(exc)
+                    errors.append(f"OpenRouter/{model}: {detail[:220]}")
+                    log(f"OpenRouter model '{model}' unavailable; checking remaining options.")
+                    if "HTTP 429" in detail and any(
+                        term in detail.lower()
+                        for term in ("free-models-per-day", "daily limit", "rate limit exceeded")
+                    ):
+                        log("OpenRouter free daily quota exhausted; skipping remaining free models.")
+                        break
 
-def build_facebook_caption(source_name, category, reason="", scene_summary=""):
-    """Build a scene-specific caption with a grounded title and exactly five hashtags."""
-    category = str(category or "interesting").strip().lower()
-    allowed = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
-    if category not in allowed:
-        category = "interesting"
-
-    configured_title = os.getenv("DRAMA_TITLE", "").strip()
-    drama_title = configured_title or clean_title_from_filename(source_name)
-
-    scene_lines = {
+        if errors:
+            log("Configured cloud AI fallback chain exhausted: " + " | ".join(errors[:8]))
+        return _local_visual_fallback(frames, starts)= {
         "romantic": "A beautiful romantic moment filled with warmth and emotion. ❤️",
         "emotional": "A powerful emotional moment that touches the heart. 💔",
         "comedy": "A light-hearted moment that brings a smile. 😄",
