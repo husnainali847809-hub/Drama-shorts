@@ -117,20 +117,49 @@ def require_rights():
 def read_history():
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not STATE_FILE.exists():
-        return {"video_ids": []}
+        return {"video_ids": [], "video_clips": {}}
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        return {"video_ids": list(data.get("video_ids", []))[-1000:]}
-    except (ValueError, OSError):
-        return {"video_ids": []}
+        clips = data.get("video_clips", {})
+        if not isinstance(clips, dict):
+            clips = {}
+        clean_clips = {}
+        for key, values in clips.items():
+            if isinstance(values, list):
+                clean_clips[str(key)] = [
+                    round(float(value), 2) for value in values
+                    if isinstance(value, (int, float))
+                ][-4:]
+        return {
+            "video_ids": list(data.get("video_ids", []))[-1000:],
+            "video_clips": clean_clips,
+        }
+    except (ValueError, OSError, TypeError):
+        return {"video_ids": [], "video_clips": {}}
 
 
-def save_history(history, video_id):
-    ids = history.get("video_ids", [])
-    if video_id not in ids:
-        ids.append(video_id)
+def save_history(history, video_id, clip_start=None, max_clips=4):
+    ids = list(history.get("video_ids", []))
+    clips = dict(history.get("video_clips", {}))
+    if clip_start is None:
+        if video_id not in ids:
+            ids.append(video_id)
+    else:
+        starts = list(clips.get(video_id, []))
+        start_value = round(float(clip_start), 2)
+        if not any(abs(existing - start_value) < 1.0 for existing in starts):
+            starts.append(start_value)
+        clips[video_id] = starts[-max_clips:]
+        if len(clips[video_id]) >= max_clips and video_id not in ids:
+            ids.append(video_id)
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps({"video_ids": ids[-1000:]}, indent=2), encoding="utf-8")
+    STATE_FILE.write_text(
+        json.dumps({
+            "video_ids": ids[-1000:],
+            "video_clips": dict(list(clips.items())[-1000:]),
+        }, indent=2),
+        encoding="utf-8",
+    )
 
 
 def discover_youtube_latest(channel_url, seen_ids):
@@ -548,12 +577,11 @@ def candidate_starts(duration):
     duration = float(duration)
     if duration < CLIP_SECONDS + 5:
         raise RuntimeError(f"Episode is too short for a {CLIP_SECONDS}-second clip.")
-    # Sample up to 8 evenly distributed windows. This avoids downloading
-    # or scanning the entire episode locally and keeps vision requests bounded.
+    # Sample 12 evenly distributed windows for distinct clips across daily slots.
     last_start = max(0.0, duration - CLIP_SECONDS)
     if last_start <= 0:
         return [0.0]
-    return [round(last_start * i / 7, 2) for i in range(8)]
+    return [round(last_start * i / 11, 2) for i in range(12)]
 
 
 def frame_data(clip, second):
