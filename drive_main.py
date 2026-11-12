@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 import requests
@@ -120,6 +121,49 @@ def download_video(token, item, destination):
     log(f"Downloaded '{item.get('name', 'video')}' ({total // (1024 * 1024)} MB).")
 
 
+def post_with_retry(url, *, max_attempts=5, **kwargs):
+    """Retry temporary provider overloads and network failures with bounded backoff."""
+    retryable_statuses = {429, 500, 502, 503, 504}
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(url, **kwargs)
+            if response.status_code not in retryable_statuses:
+                return response
+            last_error = RuntimeError(
+                f"Temporary API response HTTP {response.status_code}: "
+                f"{response.text[:500]}"
+            )
+            if attempt == max_attempts:
+                return response
+
+            retry_after = response.headers.get("Retry-After", "").strip()
+            try:
+                delay = min(60, max(1, int(float(retry_after)))) if retry_after else min(30, 5 * (2 ** (attempt - 1)))
+            except ValueError:
+                delay = min(30, 5 * (2 ** (attempt - 1)))
+            log(
+                f"AI provider temporarily unavailable (HTTP {response.status_code}); "
+                f"retrying attempt {attempt + 1}/{max_attempts} in {delay}s."
+            )
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == max_attempts:
+                raise RuntimeError(
+                    f"AI provider request failed after {max_attempts} attempts: {exc}"
+                ) from exc
+            delay = min(30, 5 * (2 ** (attempt - 1)))
+            log(
+                f"Temporary AI network error; retrying attempt "
+                f"{attempt + 1}/{max_attempts} in {delay}s."
+            )
+
+        time.sleep(delay)
+
+    raise RuntimeError(f"AI provider request failed: {last_error}")
+
+
 def classify_local_video(video_path, work_dir):
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
@@ -180,7 +224,7 @@ def classify_local_video(video_path, work_dir):
                         "data": encoded,
                     }
                 })
-            response = requests.post(
+            response = post_with_retry(
                 "https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{model}:generateContent",
                 headers={
