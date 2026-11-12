@@ -79,7 +79,7 @@ def newest_unprocessed_video(token, history):
         "q": f"'{folder_id}' in parents and trashed = false and mimeType contains 'video/'",
         "pageSize": 100,
         "orderBy": "modifiedTime desc",
-        "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink)",
+        "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink,parents)",
         "supportsAllDrives": "true",
         "includeItemsFromAllDrives": "true",
     }
@@ -97,6 +97,52 @@ def newest_unprocessed_video(token, history):
         if item.get("id") and item["id"] not in history.get("video_ids", []):
             return item
     return None
+
+
+def list_folder_audio(token, folder_id):
+    """Find audio files stored beside the drama videos in the configured Drive folder."""
+    params = {
+        "q": f"'{folder_id}' in parents and trashed = false and mimeType contains 'audio/'",
+        "pageSize": 100,
+        "orderBy": "name",
+        "fields": "files(id,name,mimeType,size)",
+        "supportsAllDrives": "true",
+        "includeItemsFromAllDrives": "true",
+    }
+    response = requests.get(
+        f"{DRIVE_API}/files", headers=drive_headers(token), params=params, timeout=45
+    )
+    if response.status_code >= 400:
+        raise RuntimeError("Google Drive could not list music files: " + response.text[:300])
+    audio_files = response.json().get("files", [])
+    log(f"Found {len(audio_files)} audio file(s) beside the drama videos in Google Drive.")
+    return audio_files
+
+
+def download_drive_file(token, item, destination):
+    """Download a Drive audio file to the temporary work directory."""
+    response = requests.get(
+        f"{DRIVE_API}/files/{item['id']}",
+        headers=drive_headers(token),
+        params={"alt": "media", "supportsAllDrives": "true"},
+        stream=True,
+        timeout=(30, 300),
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Google Drive audio download failed for {item.get('name', 'audio')}: "
+            + response.text[:250]
+        )
+    total = 0
+    with open(destination, "wb") as output:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                output.write(chunk)
+                total += len(chunk)
+    if total < 1024:
+        raise RuntimeError(f"Downloaded audio file is empty: {item.get('name', 'audio')}")
+    log(f"Downloaded music track '{item.get('name', destination.name)}'.")
+    return destination
 
 
 def download_video(token, item, destination):
@@ -481,6 +527,20 @@ def main():
         suffix = Path(safe_name).suffix.lower() or ".mp4"
         source_path = Path(work_dir) / ("drive_source_video" + suffix)
         download_video(token, item, source_path)
+        music_dir = Path(work_dir) / "drive_music"
+        music_dir.mkdir(parents=True, exist_ok=True)
+        audio_files = list_folder_audio(token, required_env("DRIVE_FOLDER_ID"))
+        for audio_item in audio_files:
+            audio_name = Path(audio_item.get("name") or audio_item["id"]).name
+            audio_suffix = Path(audio_name).suffix.lower()
+            if audio_suffix not in {".mp3", ".wav", ".m4a", ".aac"}:
+                continue
+            try:
+                download_drive_file(
+                    token, audio_item, music_dir / f"{audio_item['id']}{audio_suffix}"
+                )
+            except Exception as audio_error:
+                log(f"Skipping unavailable music file '{audio_name}': {audio_error}")
         prior_starts = history.get("video_clips", {}).get(item["id"], [])
         try:
             start, category, reason, scene_summary = classify_local_video(
@@ -502,7 +562,8 @@ def main():
         clip_seconds = min(90, pipeline.adaptive_clip_seconds(source_path, start, category))
         log(f"Facebook Reel duration safety cap applied: {clip_seconds}s (maximum 90s).")
         music_meta = pipeline.render_clip(
-            source_path, start, category, output_path, clip_seconds=clip_seconds
+            source_path, start, category, output_path,
+            clip_seconds=clip_seconds, music_dir=music_dir
         )
         public_url = pipeline.upload_cloudinary(output_path)
         from publisher.buffer import queue_facebook_reel
