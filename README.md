@@ -62,15 +62,18 @@ The editing engine detects shot changes and applies one of three treatments:
 - **Dialogue-to-song:** for comedy/romantic scenes, estimates an opening dialogue pause before introducing matching background music; original dialogue remains audible.
 - **Cinematic:** for action, suspense and emotional scenes, uses detected cuts with subtle opening/closing fades.
 
-## 3B. Clip length
+## 3B. Automatic clip length
 
-For a manual workflow run, choose one of these durations:
-- **30 seconds**
-- **45 seconds**
-- **60 seconds**
-- **180 seconds (maximum 3 minutes)**
+The workflow now chooses the clip length automatically from the selected scene's mood/category. It does not ask for a fixed duration when you run it manually.
 
-Scheduled runs default to 60 seconds. The code rejects any other duration, and the selected clip cannot exceed 180 seconds.
+- **Comedy:** target 45 seconds
+- **Interesting:** target 60 seconds
+- **Action:** target 75 seconds
+- **Romantic:** target 90 seconds
+- **Suspense:** target 90 seconds
+- **Emotional:** target 120 seconds
+
+The editor shortens the target if the source video has less usable footage remaining. A hard limit of **180 seconds (3 minutes)** is enforced in the rendering code, so no clip can exceed it. The 60-second analysis window is used only to compare candidate scenes; it is not the final output duration.
 
 ## 4. Configure GitHub Actions
 
@@ -102,7 +105,7 @@ Each successful run:
 1. Finds a new episode from configured sources.
 2. Detects scene windows and asks the configured OpenRouter model to classify/select a scene.
 3. Selects an authorized track matching the scene mood.
-4. Creates a 30-, 45-, 60-, or 180-second 1080×1920 vertical clip (scheduled runs default to 60 seconds), preserving dialogue and adding a confidently matched track when available.
+4. Creates an automatically timed 1080×1920 vertical clip based on the selected scene category (never longer than 180 seconds), preserving dialogue and adding a confidently matched track when available.
 5. Uploads the clip to Cloudinary and queues a Facebook Reel in Buffer.
 6. Saves the episode ID to the run-history cache to avoid processing it again.
 
