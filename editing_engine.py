@@ -78,10 +78,34 @@ def detect_scene_cuts(video_path, start, duration, max_cuts=14):
 
 
 def find_music(category):
-    folder = MUSIC_ROOT / str(category).lower()
-    if not folder.exists():
+    """Choose a suitable track from the single music folder using the AI scene category."""
+    if not MUSIC_ROOT.exists():
         return None
-    return next((p for p in sorted(folder.iterdir()) if p.suffix.lower() in AUDIO_EXTENSIONS), None)
+
+    tracks = sorted(
+        p for p in MUSIC_ROOT.iterdir()
+        if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
+    )
+    if not tracks:
+        return None
+
+    mood_keywords = {
+        "comedy": ("comedy", "funny", "comic", "playful", "happy"),
+        "romantic": ("romantic", "love", "soft", "sweet", "warm"),
+        "emotional": ("emotional", "sad", "piano", "heart", "slow"),
+        "suspense": ("suspense", "tension", "thriller", "mystery", "dark"),
+        "action": ("action", "epic", "power", "battle", "intense"),
+        "interesting": ("interesting", "upbeat", "curious", "light"),
+    }
+    keywords = mood_keywords.get(str(category).lower(), ())
+    matching = [
+        track for track in tracks
+        if any(word in track.stem.lower() for word in keywords)
+    ]
+    chosen_pool = matching or tracks
+    chosen = chosen_pool[0]
+    log(f"Selected background track '{chosen.name}' for AI-detected mood '{category}'.")
+    return chosen
 
 
 def fit_vertical(clip):
