@@ -121,10 +121,14 @@ def download_video(token, item, destination):
 
 
 def classify_local_video(video_path, work_dir):
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
-    model = "google/gemini-2.5-flash"  # Pin a real vision model; never route through openrouter/free.
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not gemini_api_key and not openrouter_api_key:
+        raise RuntimeError(
+            "Missing scene-analysis API key. Add GEMINI_API_KEY (recommended) "
+            "as a GitHub Actions secret, or fund the OPENROUTER_API_KEY account."
+        )
+    model = "gemini-2.5-flash"
 
     clip = VideoFileClip(str(video_path))
     try:
@@ -164,28 +168,70 @@ def classify_local_video(video_path, work_dir):
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
             })
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": content}],
-                "temperature": 0.2,
-            },
-            timeout=180,
-        )
-        if response.status_code >= 400:
-            # OpenRouter's 4xx response explains model/vision/payload validation failures.
-            detail = response.text[:1200].replace(api_key, "[REDACTED]")
-            raise RuntimeError(
-                f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
-                f"model={model}): {detail}"
+        if gemini_api_key:
+            # Prefer Google's API directly so scene analysis does not require
+            # OpenRouter account credits. Images are sent as inline JPEG data.
+            gemini_parts = [{"text": prompt}]
+            for index, encoded in frames:
+                gemini_parts.append({"text": f"Candidate {index} frame:"})
+                gemini_parts.append({
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": encoded,
+                    }
+                })
+            response = requests.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                "gemini-2.5-flash:generateContent",
+                headers={
+                    "x-goog-api-key": gemini_api_key,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "contents": [{"parts": gemini_parts}],
+                    "generationConfig": {
+                        "temperature": 0.2,
+                        "responseMimeType": "application/json",
+                    },
+                },
+                timeout=180,
             )
-        payload = response.json()
-        raw = payload["choices"][0]["message"]["content"]
+            if response.status_code >= 400:
+                detail = response.text[:1200].replace(gemini_api_key, "[REDACTED]")
+                raise RuntimeError(
+                    f"Gemini scene-classification failed (HTTP {response.status_code}; "
+                    f"model={model}): {detail}"
+                )
+            payload = response.json()
+            raw = "".join(
+                str(part.get("text", ""))
+                for part in payload["candidates"][0]["content"]["parts"]
+                if isinstance(part, dict)
+            )
+        else:
+            # Paid OpenRouter fallback, used only when no direct Gemini key exists.
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "google/gemini-2.5-flash",
+                    "messages": [{"role": "user", "content": content}],
+                    "temperature": 0.2,
+                },
+                timeout=180,
+            )
+            if response.status_code >= 400:
+                detail = response.text[:1200].replace(openrouter_api_key, "[REDACTED]")
+                raise RuntimeError(
+                    f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
+                    f"model=google/gemini-2.5-flash): {detail}. "
+                    "Add GEMINI_API_KEY to use Google's API directly without OpenRouter credits."
+                )
+            payload = response.json()
+            raw = payload["choices"][0]["message"]["content"]
         if isinstance(raw, list):
             raw = " ".join(
                 str(part.get("text", "")) for part in raw if isinstance(part, dict)
