@@ -183,10 +183,11 @@ def find_music(category):
 
     ranked.sort(key=lambda item: (item[0], item[1].name.lower()))
     distance, chosen, profile, labelled = ranked[0]
-    if not labelled and distance > 0.24:
+    confidence_limit = 0.24 if not labelled else 0.40
+    if distance > confidence_limit:
         log(
-            f"No confident '{category}' match (best acoustic score {distance:.2f}); "
-            "keeping original audio instead of choosing randomly."
+            f"No confident '{category}' match (best acoustic score {distance:.2f}, "
+            f"limit={confidence_limit:.2f}); keeping original audio instead of choosing randomly."
         )
         return None
 
