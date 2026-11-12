@@ -128,7 +128,7 @@ def classify_local_video(video_path, work_dir):
             "Missing scene-analysis API key. Add GEMINI_API_KEY (recommended) "
             "as a GitHub Actions secret, or fund the OPENROUTER_API_KEY account."
         )
-    model = "gemini-2.5-flash"
+    model = "gemini-3.8-flash"
 
     clip = VideoFileClip(str(video_path))
     try:
@@ -182,7 +182,7 @@ def classify_local_video(video_path, work_dir):
                 })
             response = requests.post(
                 "https://generativelanguage.googleapis.com/v1beta/models/"
-                "gemini-2.5-flash:generateContent",
+                f"{model}:generateContent",
                 headers={
                     "x-goog-api-key": gemini_api_key,
                     "Content-Type": "application/json",
@@ -217,7 +217,7 @@ def classify_local_video(video_path, work_dir):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "google/gemini-2.5-flash",
+                    "model": "google/gemini-3.8-flash",
                     "messages": [{"role": "user", "content": content}],
                     "temperature": 0.2,
                 },
@@ -227,7 +227,7 @@ def classify_local_video(video_path, work_dir):
                 detail = response.text[:1200].replace(openrouter_api_key, "[REDACTED]")
                 raise RuntimeError(
                     f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
-                    f"model=google/gemini-2.5-flash): {detail}. "
+                    f"model=google/gemini-3.8-flash): {detail}. "
                     "Add GEMINI_API_KEY to use Google's API directly without OpenRouter credits."
                 )
             payload = response.json()
