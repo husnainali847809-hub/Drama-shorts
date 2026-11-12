@@ -226,15 +226,152 @@ def post_with_retry(url, *, max_attempts=5, **kwargs):
     raise RuntimeError(f"AI provider request failed: {last_error}")
 
 
-def classify_local_video(video_path, work_dir, excluded_starts=None):
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not gemini_api_key and not openrouter_api_key:
-        raise RuntimeError(
-            "Missing scene-analysis API key. Add GEMINI_API_KEY (recommended) "
-            "as a GitHub Actions secret, or fund the OPENROUTER_API_KEY account."
+def _extract_model_text(payload):
+    """Normalize common vision-chat response shapes to plain text."""
+    if isinstance(payload, dict) and payload.get("candidates"):
+        parts = payload["candidates"][0].get("content", {}).get("parts", [])
+        return "".join(str(part.get("text", "")) for part in parts if isinstance(part, dict))
+    choices = payload.get("choices") or []
+    if not choices:
+        raise RuntimeError("Provider returned no choices.")
+    message = choices[0].get("message") or {}
+    raw = message.get("content")
+    if isinstance(raw, str) and raw.strip():
+        return raw
+    if isinstance(raw, list):
+        return "".join(
+            str(part.get("text", "")) for part in raw
+            if isinstance(part, dict) and part.get("type") == "text"
         )
-    model = "gemini-3.8-flash"
+    raise RuntimeError(
+        f"Provider returned no final text (finish_reason={choices[0].get('finish_reason')})."
+    )
+
+
+def _validate_scene_result(raw, starts):
+    match = re.search(r"\{.*\}", str(raw), re.S)
+    if not match:
+        raise RuntimeError(f"AI scene classifier returned no JSON: {str(raw)[:300]}")
+    result = json.loads(match.group(0))
+    if not isinstance(result, dict):
+        raise RuntimeError("AI scene classifier JSON must be an object.")
+    selected = int(result.get("selected_candidate", -1))
+    category = str(result.get("category", "")).strip().lower()
+    if selected < 0 or selected >= len(starts) or category not in pipeline.ALLOWED_CATEGORIES:
+        raise RuntimeError(f"AI returned invalid scene selection: {result}")
+    return (
+        starts[selected],
+        category,
+        str(result.get("reason", "")).strip(),
+        str(result.get("scene_summary", "")).strip(),
+    )
+
+
+def _openai_vision_request(provider_name, endpoint, api_key, model, content, timeout=180):
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if provider_name == "OpenRouter":
+        headers.update({
+            "HTTP-Referer": "https://github.com/",
+            "X-Title": "DramaClips Scene Classifier",
+        })
+    response = post_with_retry(
+        endpoint,
+        headers=headers,
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": content}],
+            "temperature": 0.1,
+            "max_tokens": 1800,
+        },
+        timeout=(30, timeout),
+    )
+    if response.status_code >= 400:
+        detail = response.text[:900].replace(api_key, "[REDACTED]")
+        raise RuntimeError(
+            f"{provider_name} failed (HTTP {response.status_code}; model={model}): {detail}"
+        )
+    return _extract_model_text(response.json())
+
+
+def _local_visual_fallback(frames, starts):
+    """Deterministic CV fallback: choose the clearest, most visually active window."""
+    from PIL import Image, ImageChops, ImageFilter, ImageStat
+
+    best_index = None
+    best_score = float("-inf")
+    best_reason = ""
+    for candidate_index in range(len(starts)):
+        candidate_images = []
+        for frame_index, encoded in frames:
+            if frame_index != candidate_index:
+                continue
+            try:
+                image = Image.open(io.BytesIO(base64.b64decode(encoded))).convert("L")
+                image.thumbnail((256, 256))
+                candidate_images.append(image)
+            except Exception:
+                continue
+        if len(candidate_images) < 2:
+            continue
+
+        brightness = sum(ImageStat.Stat(image).mean[0] for image in candidate_images) / len(candidate_images)
+        contrast = sum(ImageStat.Stat(image).stddev[0] for image in candidate_images) / len(candidate_images)
+        edge_strength = sum(
+            ImageStat.Stat(image.filter(ImageFilter.FIND_EDGES)).mean[0]
+            for image in candidate_images
+        ) / len(candidate_images)
+        changes = []
+        for previous, current in zip(candidate_images, candidate_images[1:]):
+            difference = ImageChops.difference(previous, current)
+            changes.append(ImageStat.Stat(difference).mean[0])
+        motion_change = sum(changes) / max(1, len(changes))
+        # Penalize near-black and nearly static windows; reward visible detail
+        # and moderate frame-to-frame change. This is not a mood classifier.
+        visibility = max(0.0, min(1.0, brightness / 70.0))
+        score = (contrast * 0.35) + (edge_strength * 0.35) + (motion_change * 0.45) + (visibility * 12.0)
+        if brightness < 12:
+            score -= 35
+        if score > best_score:
+            best_score = score
+            best_index = candidate_index
+            best_reason = (
+                f"Local visual fallback score={score:.1f}; selected for visible detail "
+                "and frame-to-frame activity. Mood was not guessed."
+            )
+
+    if best_index is None:
+        raise RuntimeError("Local visual fallback could not decode enough candidate frames.")
+    log("All configured AI vision providers were unavailable; using deterministic local visual fallback.")
+    return (
+        starts[best_index],
+        "interesting",
+        best_reason,
+        "A visually active drama moment selected by local frame analysis.",
+    )
+
+
+def classify_local_video(video_path, work_dir, excluded_starts=None):
+    """Try configured vision providers in order, then use local CV as final fallback."""
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    provider_specs = [
+        ("Groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1/chat/completions",
+         os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()),
+        ("NVIDIA NIM", "NVIDIA_API_KEY", "https://integrate.api.nvidia.com/v1/chat/completions",
+         os.getenv("NVIDIA_MODEL", "meta/llama-3.2-90b-vision-instruct").strip()),
+        ("Together AI", "TOGETHER_API_KEY", "https://api.together.xyz/v1/chat/completions",
+         os.getenv("TOGETHER_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct").strip()),
+        ("Mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1/chat/completions",
+         os.getenv("MISTRAL_MODEL", "pixtral-large-latest").strip()),
+        ("Hugging Face", "HF_TOKEN", "https://router.huggingface.co/v1/chat/completions",
+         os.getenv("HF_VISION_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct").strip()),
+        ("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1/chat/completions",
+         os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini").strip()),
+        ("OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions",
+         os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"),
+    ]
 
     clip = VideoFileClip(str(video_path))
     try:
@@ -251,12 +388,11 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
         log(f"Checking {len(starts)} unused candidate windows for this episode.")
         frames = []
         for index, start in enumerate(starts):
-            # Three ordered samples keep the vision request compact while preserving
-            # enough temporal context to judge the scene.
-            for frame_number, offset in enumerate((
-                pipeline.CLIP_SECONDS * 0.20, pipeline.CLIP_SECONDS * 0.50,
+            for offset in (
+                pipeline.CLIP_SECONDS * 0.20,
+                pipeline.CLIP_SECONDS * 0.50,
                 pipeline.CLIP_SECONDS * 0.80,
-            )):
+            ):
                 frame = Image.fromarray(clip.get_frame(start + offset)).convert("RGB")
                 frame.thumbnail((512, 512))
                 buffer = io.BytesIO()
@@ -274,185 +410,85 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
             "or plot facts that are not visible. Classify the visible mood as exactly one of: "
             "action, emotional, comedy, romantic, suspense, interesting. Return ONLY JSON "
             "with selected_candidate, category, reason, and scene_summary. "
-            + '{"selected_candidate":0,"category":"interesting",'
-            + '"reason":"clear character reaction","scene_summary":"two characters react to news"}.'
+            '{"selected_candidate":0,"category":"interesting",'
+            '"reason":"clear character reaction","scene_summary":"two characters react to news"}.'
         )
-        content = [{"type": "text", "text": prompt}]
+        openai_content = [{"type": "text", "text": prompt}]
         for index, encoded in frames:
-            content.append({"type": "text", "text": f"Candidate {index} frame:"})
-            content.append({
+            openai_content.append({"type": "text", "text": f"Candidate {index} frame:"})
+            openai_content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
             })
-        def classify_with_openrouter():
-            if not openrouter_api_key:
-                raise RuntimeError(
-                    "OpenRouter fallback is unavailable. Add OPENROUTER_API_KEY "
-                    "as a GitHub Actions secret to enable automatic fallback."
-                )
-            # The workflow defaults this to OpenRouter's free vision-aware router.
-            # Do not hardcode a paid model: the previous hardcoding caused HTTP 402
-            # even though OPENROUTER_MODEL was configured as openrouter/free.
-            openrouter_model = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"
-            log(f"Using OpenRouter fallback model '{openrouter_model}' for scene classification.")
-            request_headers = {
-                "Authorization": f"Bearer {openrouter_api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/",
-                "X-Title": "DramaClips Scene Classifier",
-            }
-            # Some free reasoning models spend a small output budget on internal
-            # reasoning and return content=null with finish_reason=length. Give the
-            # actual JSON answer enough room and request no reasoning where supported.
-            request_payload = {
-                "model": openrouter_model,
-                "messages": [{"role": "user", "content": content}],
-                "temperature": 0.1,
-                "max_tokens": 1400,
-                "reasoning": {"effort": "none"},
-            }
 
-            last_empty_reason = "unknown"
-            for response_attempt in range(1, 3):
-                fallback_response = post_with_retry(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers=request_headers,
-                    json=request_payload,
-                    timeout=(30, 180),
-                )
-                if fallback_response.status_code >= 400:
-                    detail = fallback_response.text[:1000].replace(
-                        openrouter_api_key, "[REDACTED]"
-                    )
-                    raise RuntimeError(
-                        f"OpenRouter scene-classification failed "
-                        f"(HTTP {fallback_response.status_code}; "
-                        f"model={openrouter_model}): {detail}"
-                    )
-                try:
-                    fallback_payload = fallback_response.json()
-                    choices = fallback_payload.get("choices") or []
-                    choice = choices[0] if choices else {}
-                    message = choice.get("message") or {}
-                    raw_content = message.get("content")
-                    if isinstance(raw_content, str) and raw_content.strip():
-                        return raw_content
-                    if isinstance(raw_content, list):
-                        text_parts = [
-                            str(part.get("text", "")) for part in raw_content
-                            if isinstance(part, dict) and part.get("type") == "text"
-                        ]
-                        joined = "".join(text_parts).strip()
-                        if joined:
-                            return joined
-                    last_empty_reason = (
-                        f"finish_reason={choice.get('finish_reason')}; "
-                        f"provider={fallback_payload.get('provider', 'unknown')}; "
-                        f"model={fallback_payload.get('model', openrouter_model)}"
-                    )
-                except (ValueError, KeyError, TypeError, IndexError) as exc:
-                    last_empty_reason = f"invalid response JSON/shape: {exc}"
-
-                if response_attempt == 1:
-                    # Retry once with a larger answer budget; do not expose or parse
-                    # private reasoning as if it were the requested scene JSON.
-                    request_payload["max_tokens"] = 2200
-                    log(
-                        "OpenRouter returned no final answer "
-                        f"({last_empty_reason}); retrying once with a larger output budget."
-                    )
-
-            raise RuntimeError(
-                "OpenRouter returned no final answer after two attempts "
-                f"({last_empty_reason}). The clip was not published."
-            )
-
+        errors = []
+        # Google model variants are attempted first; quota exhaustion may affect
+        # the whole project, but another available model can still respond.
         if gemini_api_key:
-            # Prefer Google's API directly. If it remains unavailable after retries,
-            # automatically use OpenRouter when its secret is configured.
+            gemini_models = []
+            configured = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+            for candidate in [configured, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+                if candidate and candidate not in gemini_models:
+                    gemini_models.append(candidate)
             gemini_parts = [{"text": prompt}]
             for index, encoded in frames:
                 gemini_parts.append({"text": f"Candidate {index} frame:"})
                 gemini_parts.append({
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": encoded,
-                    }
+                    "inline_data": {"mime_type": "image/jpeg", "data": encoded}
                 })
-            try:
-                response = post_with_retry(
-                    "https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{model}:generateContent",
-                    headers={
-                        "x-goog-api-key": gemini_api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "contents": [{"parts": gemini_parts}],
-                        "generationConfig": {
-                            "temperature": 0.2,
-                            "responseMimeType": "application/json",
+            for model in gemini_models:
+                try:
+                    log(f"Trying Gemini vision model '{model}'.")
+                    response = post_with_retry(
+                        "https://generativelanguage.googleapis.com/v1beta/models/"
+                        f"{model}:generateContent",
+                        headers={
+                            "x-goog-api-key": gemini_api_key,
+                            "Content-Type": "application/json",
                         },
-                    },
-                    timeout=180,
-                )
-                if response.status_code >= 400:
-                    detail = response.text[:1200].replace(gemini_api_key, "[REDACTED]")
-                    raise RuntimeError(
-                        f"Gemini scene-classification failed "
-                        f"(HTTP {response.status_code}; model={model}): {detail}"
+                        json={
+                            "contents": [{"parts": gemini_parts}],
+                            "generationConfig": {
+                                "temperature": 0.2,
+                                "responseMimeType": "application/json",
+                            },
+                        },
+                        timeout=(30, 180),
                     )
-                payload = response.json()
-                raw = "".join(
-                    str(part.get("text", ""))
-                    for part in payload["candidates"][0]["content"]["parts"]
-                    if isinstance(part, dict)
+                    if response.status_code >= 400:
+                        detail = response.text[:700].replace(gemini_api_key, "[REDACTED]")
+                        raise RuntimeError(
+                            f"HTTP {response.status_code}; model={model}: {detail}"
+                        )
+                    result = _validate_scene_result(_extract_model_text(response.json()), starts)
+                    log(f"Scene classification succeeded with Gemini model '{model}'.")
+                    return result
+                except Exception as exc:
+                    errors.append(f"Gemini/{model}: {str(exc)[:220]}")
+                    log(f"Gemini model '{model}' unavailable; trying next provider/model.")
+
+        # Every optional provider is skipped unless its API key is configured.
+        for provider_name, key_name, endpoint, model in provider_specs:
+            api_key = os.getenv(key_name, "").strip()
+            if not api_key or not model:
+                continue
+            try:
+                log(f"Trying {provider_name} vision model '{model}'.")
+                raw = _openai_vision_request(
+                    provider_name, endpoint, api_key, model, openai_content
                 )
-            except Exception as gemini_error:
-                if not openrouter_api_key:
-                    raise RuntimeError(
-                        f"{gemini_error} Add OPENROUTER_API_KEY as a GitHub Actions "
-                        "secret to enable automatic fallback."
-                    ) from gemini_error
-                log(
-                    f"Gemini scene analysis failed after retries "
-                    f"({str(gemini_error)[:250]}). Switching to OpenRouter."
-                )
-                raw = classify_with_openrouter()
-        else:
-            raw = classify_with_openrouter()
-        if isinstance(raw, list):
-            raw = " ".join(
-                str(part.get("text", "")) for part in raw if isinstance(part, dict)
-            )
-        import re
-        match = re.search(r"\{.*\}", str(raw), re.S)
-        if not match:
-            raise RuntimeError(
-                f"AI scene classifier returned no JSON: {str(raw)[:300]}"
-            )
-        try:
-            result = json.loads(match.group(0))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"AI scene classifier returned malformed JSON: {exc}. "
-                f"Response preview: {str(raw)[:300]}"
-            ) from exc
-        if not isinstance(result, dict):
-            raise RuntimeError("AI scene classifier JSON must be an object.")
-        selected = int(result.get("selected_candidate", -1))
-        category = str(result.get("category", "")).strip().lower()
-        if selected < 0 or selected >= len(starts) or category not in pipeline.ALLOWED_CATEGORIES:
-            raise RuntimeError(f"AI returned invalid scene selection: {result}")
-        return (
-            starts[selected],
-            category,
-            str(result.get("reason", "")).strip(),
-            str(result.get("scene_summary", "")).strip(),
-        )
+                result = _validate_scene_result(raw, starts)
+                log(f"Scene classification succeeded with {provider_name} ({model}).")
+                return result
+            except Exception as exc:
+                errors.append(f"{provider_name}/{model}: {str(exc)[:220]}")
+                log(f"{provider_name} unavailable; trying the next configured provider.")
+
+        if errors:
+            log("Cloud AI fallback chain exhausted: " + " | ".join(errors[:8]))
+        return _local_visual_fallback(frames, starts)
     finally:
         clip.close()
-
 
 def clean_title_from_filename(filename):
     """Use the supplied source title as the drama label; never invent a show name."""
