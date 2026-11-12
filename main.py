@@ -614,62 +614,15 @@ def reusable_music_track(category):
 
 
 def render_clip(source_path, start, category, output_path):
-    # Background music is optional: use a local track if present; otherwise
-    # preserve the source audio without requiring licence sidecar metadata.
-    music_path = None
-    music_meta = {"title": "Original audio only", "attribution": ""}
-    try:
-        music_path, music_meta = reusable_music_track(category)
-    except RuntimeError as exc:
-        log(f"No background music available for '{category}'; keeping original audio only. {exc}")
-
-    source = VideoFileClip(str(source_path))
-    clip = source.subclipped(start, min(start + CLIP_SECONDS, source.duration))
-    if clip.duration < CLIP_SECONDS - 1:
-        source.close()
-        clip.close()
-        raise RuntimeError("Selected scene window is shorter than the configured clip length.")
-
-    # Vertical 1080x1920 crop, centered, without stretching the source.
-    resized = clip.resized(height=1920)
-    vertical = resized.cropped(
-        x_center=resized.w / 2, y_center=resized.h / 2, width=1080, height=1920
+    """Use the shared three-style professional editing engine."""
+    from editing_engine import render_professional_clip
+    return render_professional_clip(
+        source_path,
+        start,
+        category,
+        output_path,
+        clip_seconds=CLIP_SECONDS,
     )
-
-    music = None
-    mixed_audio = None
-    final = vertical
-    if music_path:
-        music = AudioFileClip(str(music_path))
-        if music.duration >= clip.duration:
-            music = music.subclipped(0, clip.duration).with_volume_scaled(0.18)
-            audio_layers = [music]
-            if vertical.audio is not None:
-                audio_layers.insert(0, vertical.audio.with_volume_scaled(1.0))
-            mixed_audio = CompositeAudioClip(audio_layers)
-            final = vertical.with_audio(mixed_audio)
-        else:
-            log(f"Background music track is shorter than the clip; keeping original audio only: {music_path.name}")
-            music.close()
-            music = None
-            music_meta = {"title": "Original audio only", "attribution": ""}
-
-    final.write_videofile(
-        str(output_path), codec="libx264", audio_codec="aac", fps=30,
-        preset="medium", bitrate="4500k", audio_bitrate="192k", threads=2,
-    )
-
-    if final is not vertical:
-        final.close()
-    if mixed_audio is not None:
-        mixed_audio.close()
-    if music is not None:
-        music.close()
-    vertical.close()
-    resized.close()
-    clip.close()
-    source.close()
-    return music_meta
 
 def upload_cloudinary(video_path):
     required = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
