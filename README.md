@@ -38,21 +38,39 @@ Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until
 
 **A public channel link is not permission to reuse its episodes.** Do not enable this workflow without rights.
 
-## 3. Add mood-matched music
+## 3. Add scene-matched music
 
-Follow `assets/music/README.md`. Add authorized tracks to the matching mood folder and add the required licence sidecar JSON. The pipeline supports action, emotional, comedy, romantic, suspense, and interesting scenes. If the selected mood has no valid music track, the run stops instead of using unlicensed music.
+Upload your own or properly licensed music files under the repository root folder: `dramas/`. The editor searches this folder and all subfolders recursively. Supported formats: MP3, WAV, M4A and AAC.
 
-## 3A. Automatic professional editing styles
+For reliable mood matching, use clear names or mood folders, for example:
+- `dramas/comedy/funny_upbeat.mp3`
+- `dramas/romantic/soft_love.mp3`
+- `dramas/emotional/sad_piano.mp3`
+- `dramas/suspense/dark_tension.mp3`
+- `dramas/action/epic_energy.mp3`
 
-The shared `editing_engine.py` is used by the Google Drive pipeline and the URL-based pipeline. It detects shot changes inside the selected clip and automatically chooses one of three treatments from the AI scene category:
+The editor checks the scene category, mood words in the file/folder name, and measured audio characteristics (approximate energy and spectral brightness). It ranks plausible tracks and does **not** fall back to a random unrelated song. If it cannot find a confident match, it keeps the original drama audio.
 
-- **Clean story:** natural pacing and clean scene cuts.
-- **Dialogue-to-song:** for comedy/romantic scenes, estimates the first quiet gap in the opening dialogue and starts matching background music there; original dialogue remains audible.
-- **Cinematic:** for action, suspense, and emotional scenes, uses detected shot cuts with a subtle opening/closing fade.
+Important limitation: acoustic analysis cannot understand song lyrics or guarantee the song's story meaning. Clear mood labels in the filename/folder are still needed for dependable matching. Use only music you own or are licensed to use.
 
-The mood folders under `assets/music/` are currently empty in the repository. Add a music track to the matching category folder (MP3, WAV, M4A, or AAC). Without a matching track, the editor keeps the original drama audio and still renders the visual edit.
+## 3A. AI scene selection and professional editing
 
-A separate `Editing Engine Checks` workflow runs Python syntax checks and verifies the three style mappings; it does not publish videos.
+The AI compares candidate windows using four ordered frames per candidate, then selects the most coherent visible story moment and assigns one category: action, emotional, comedy, romantic, suspense, or interesting. You can optionally set the repository variable `SCENE_PREFERENCE` to describe the kind of moment to prioritize. The AI only judges what is visible in the sampled frames; it does not claim to understand dialogue it has not analysed.
+
+The editing engine detects shot changes and applies one of three treatments:
+- **Clean story:** preserves natural pacing and the original scene order.
+- **Dialogue-to-song:** for comedy/romantic scenes, estimates an opening dialogue pause before introducing matching background music; original dialogue remains audible.
+- **Cinematic:** for action, suspense and emotional scenes, uses detected cuts with subtle opening/closing fades.
+
+## 3B. Clip length
+
+For a manual workflow run, choose one of these durations:
+- **30 seconds**
+- **45 seconds**
+- **60 seconds**
+- **180 seconds (maximum 3 minutes)**
+
+Scheduled runs default to 60 seconds. The code rejects any other duration, and the selected clip cannot exceed 180 seconds.
 
 ## 4. Configure GitHub Actions
 
@@ -69,6 +87,7 @@ Add these as **Variables**:
 - `BUFFER_CHANNEL_ID` (your intended Facebook channel ID in Buffer)
 - `BUFFER_EXPECTED_CHANNEL_NAME` (optional; if set, Buffer destination name is checked)
 - `OPENROUTER_MODEL` (optional; default: `openrouter/free`)
+- `SCENE_PREFERENCE` (optional; a short instruction for the kind of coherent scene to prioritize)
 
 Keep all secret values private. Existing Buffer and Cloudinary credentials can be reused if they are still valid.
 
@@ -83,7 +102,7 @@ Each successful run:
 1. Finds a new episode from configured sources.
 2. Detects scene windows and asks the configured OpenRouter model to classify/select a scene.
 3. Selects an authorized track matching the scene mood.
-4. Creates an 85-second 1080×1920 vertical clip, preserving the original dialogue and mixing music quietly underneath.
+4. Creates a 30-, 45-, 60-, or 180-second 1080×1920 vertical clip (scheduled runs default to 60 seconds), preserving dialogue and adding a confidently matched track when available.
 5. Uploads the clip to Cloudinary and queues a Facebook Reel in Buffer.
 6. Saves the episode ID to the run-history cache to avoid processing it again.
 
