@@ -156,22 +156,15 @@ def find_music(category):
     if category not in _MOOD_TARGETS:
         return None
 
-    # Only use user-provided tracks when a neighbouring .license.json
-    # explicitly confirms permission to reuse the audio.
+    # Match audio files placed in the configured music folders.
+    # No sidecar metadata file is required.
     tracks = []
     for root in MUSIC_ROOTS:
         if not root.exists():
             continue
         for track in root.rglob("*"):
-            if not track.is_file() or track.suffix.lower() not in AUDIO_EXTENSIONS:
-                continue
-            licence_file = track.with_suffix(".license.json")
-            try:
-                licence = json.loads(licence_file.read_text(encoding="utf-8"))
-                if licence.get("reuse_permission_confirmed") is True:
-                    tracks.append(track)
-            except (OSError, ValueError, AttributeError):
-                continue
+            if track.is_file() and track.suffix.lower() in AUDIO_EXTENSIONS:
+                tracks.append(track)
     tracks = sorted(tracks)
     if not tracks:
         searched = ", ".join(str(root.relative_to(PROJECT_ROOT)) for root in MUSIC_ROOTS)
@@ -238,7 +231,7 @@ def fit_vertical(clip):
 
 
 def generate_original_music(category, duration, destination):
-    """Create a simple, original instrumental bed when no licensed track is available."""
+    """Create a simple, original instrumental bed when no matching local track is available."""
     sample_rate = 22050
     total_samples = max(sample_rate, int(float(duration) * sample_rate))
     presets = {
@@ -378,7 +371,7 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
                 vertical.duration,
                 Path(generated_music_dir.name) / f"{category}_original_instrumental.wav",
             )
-            log(f"No verified licensed track for '{category}'; generated an original mood-matched instrumental.")
+            log(f"No matching local track for '{category}'; generated an original mood-matched instrumental.")
             music_meta = {
                 "title": f"Original {category} instrumental",
                 "style": style,
