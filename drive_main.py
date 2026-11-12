@@ -123,14 +123,26 @@ def download_video(token, item, destination):
 
 def post_with_retry(url, *, max_attempts=5, **kwargs):
     """Retry temporary provider overloads and network failures with bounded backoff."""
-    retryable_statuses = {429, 500, 502, 503, 504}
+    retryable_statuses = {500, 502, 503, 504}
     last_error = None
 
     for attempt in range(1, max_attempts + 1):
         try:
             response = requests.post(url, **kwargs)
-            if response.status_code not in retryable_statuses:
+            if response.status_code == 429:
+                # A 429 without Retry-After is commonly a hard quota/rate-limit
+                # response. Repeating it five times wastes the run's time budget.
+                retry_after = response.headers.get("Retry-After", "").strip()
+                body_lower = response.text.lower()
+                hard_limit = any(term in body_lower for term in (
+                    "quota", "resource_exhausted", "daily limit",
+                    "per day", "billing", "insufficient"
+                ))
+                if not retry_after or hard_limit or attempt == max_attempts:
+                    return response
+            elif response.status_code not in retryable_statuses:
                 return response
+
             last_error = RuntimeError(
                 f"Temporary API response HTTP {response.status_code}: "
                 f"{response.text[:500]}"
@@ -218,19 +230,26 @@ def classify_local_video(video_path, work_dir):
                     "OpenRouter fallback is unavailable. Add OPENROUTER_API_KEY "
                     "as a GitHub Actions secret to enable automatic fallback."
                 )
-            log("Using OpenRouter fallback for scene classification; this may incur API charges.")
+            # The workflow defaults this to OpenRouter's free vision-aware router.
+            # Do not hardcode a paid model: the previous hardcoding caused HTTP 402
+            # even though OPENROUTER_MODEL was configured as openrouter/free.
+            openrouter_model = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip() or "openrouter/free"
+            log(f"Using OpenRouter fallback model '{openrouter_model}' for scene classification.")
             fallback_response = post_with_retry(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {openrouter_api_key}",
                     "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/",
+                    "X-Title": "DramaClips Scene Classifier",
                 },
                 json={
-                    "model": "google/gemini-3.8-flash",
+                    "model": openrouter_model,
                     "messages": [{"role": "user", "content": content}],
                     "temperature": 0.2,
+                    "max_tokens": 450,
                 },
-                timeout=180,
+                timeout=(30, 180),
             )
             if fallback_response.status_code >= 400:
                 detail = fallback_response.text[:1200].replace(
@@ -241,8 +260,26 @@ def classify_local_video(video_path, work_dir):
                     f"(HTTP {fallback_response.status_code}; "
                     f"model=google/gemini-3.8-flash): {detail}"
                 )
-            fallback_payload = fallback_response.json()
-            return fallback_payload["choices"][0]["message"]["content"]
+            try:
+                fallback_payload = fallback_response.json()
+                choices = fallback_payload.get("choices") or []
+                message = choices[0].get("message") if choices else None
+                raw_content = message.get("content") if isinstance(message, dict) else None
+                if isinstance(raw_content, str) and raw_content.strip():
+                    return raw_content
+                if isinstance(raw_content, list):
+                    text_parts = [
+                        str(part.get("text", "")) for part in raw_content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    ]
+                    if "".join(text_parts).strip():
+                        return "".join(text_parts)
+                raise ValueError("OpenRouter returned no text content in choices[0].message.")
+            except (ValueError, KeyError, TypeError, IndexError) as exc:
+                raise RuntimeError(
+                    f"OpenRouter returned an invalid response format: {exc}. "
+                    f"Response preview: {fallback_response.text[:500]}"
+                ) from exc
 
         if gemini_api_key:
             # Prefer Google's API directly. If it remains unavailable after retries,
@@ -308,7 +345,15 @@ def classify_local_video(video_path, work_dir):
             raise RuntimeError(
                 f"AI scene classifier returned no JSON: {str(raw)[:300]}"
             )
-        result = json.loads(match.group(0))
+        try:
+            result = json.loads(match.group(0))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"AI scene classifier returned malformed JSON: {exc}. "
+                f"Response preview: {str(raw)[:300]}"
+            ) from exc
+        if not isinstance(result, dict):
+            raise RuntimeError("AI scene classifier JSON must be an object.")
         selected = int(result.get("selected_candidate", -1))
         category = str(result.get("category", "")).strip().lower()
         if selected < 0 or selected >= len(starts) or category not in pipeline.ALLOWED_CATEGORIES:
@@ -398,11 +443,12 @@ def main():
         download_video(token, item, source_path)
         try:
             start, category, reason, scene_summary = classify_local_video(source_path, work_dir)
-        except RuntimeError as exc:
-            # Provider outages or exhausted fallback credits must not crash the run.
-            # Do not mark the Drive file as processed: the next scheduled run retries it.
+        except Exception as exc:
+            # Any provider, network, timeout, malformed-response, or parsing failure
+            # must fail closed. Never render from a guessed scene or mark the source
+            # processed. The next scheduled run can safely retry it.
             log(
-                f"SCENE ANALYSIS DEFERRED: {str(exc)[:500]}. "
+                f"SCENE ANALYSIS DEFERRED ({type(exc).__name__}): {str(exc)[:700]}. "
                 "No clip was rendered or queued; this Drive video remains unprocessed "
                 "and will be retried on the next run."
             )
