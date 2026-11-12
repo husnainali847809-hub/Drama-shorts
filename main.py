@@ -68,13 +68,16 @@ def build_facebook_caption(source_title, category, scene_summary=""):
         description = summary.rstrip(".") + "."
 
     title_tag = re.sub(r"[^A-Za-z0-9]", "", title.title().replace(" ", ""))[:32]
-    hashtags = [
+    candidates = [
         f"#{title_tag or 'PakistaniDrama'}",
         f"#{category.title()}Scene",
         "#PakistaniDrama",
         "#DramaClips",
         "#DramaScenes",
+        "#DramaMoments",
+        "#PakDrama",
     ]
+    hashtags = list(dict.fromkeys(candidates))[:5]
     return f"{title} | {category.title()} Scene\\n\\n{description}\\n\\n" + " ".join(hashtags)
 
 
