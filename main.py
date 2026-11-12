@@ -41,6 +41,42 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
 def log(message):
     print(f"[DramaClips] {message}", flush=True)
 
+def build_facebook_caption(source_title, category, scene_summary=""):
+    """Create a scene-aware Facebook caption with exactly five relevant hashtags."""
+    category = str(category or "interesting").strip().lower()
+    allowed = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
+    if category not in allowed:
+        category = "interesting"
+
+    title = os.getenv("DRAMA_TITLE", "").strip() or str(source_title or "").strip()
+    title = Path(title).stem
+    title = re.sub(r"\\b(official|full|hd|4k|1080p|720p|480p)\\b", " ", title, flags=re.I)
+    title = title.replace("_", " ").replace("-", " ")
+    title = re.sub(r"\\s+", " ", title).strip(" ._-")[:80] or "Pakistani Drama"
+
+    default_descriptions = {
+        "romantic": "A beautiful romantic moment filled with warmth and emotion. ❤️",
+        "emotional": "A powerful emotional moment that touches the heart. 💔",
+        "comedy": "A light-hearted moment that brings a smile. 😄",
+        "action": "An intense moment packed with action and energy. ⚡",
+        "suspense": "A gripping moment full of tension and suspense. 👀",
+        "interesting": "A memorable drama moment worth watching. ✨",
+    }
+    description = default_descriptions[category]
+    summary = re.sub(r"\\s+", " ", str(scene_summary or "")).strip()
+    if summary and len(summary) <= 180:
+        description = summary.rstrip(".") + "."
+
+    title_tag = re.sub(r"[^A-Za-z0-9]", "", title.title().replace(" ", ""))[:32]
+    hashtags = [
+        f"#{title_tag or 'PakistaniDrama'}",
+        f"#{category.title()}Scene",
+        "#PakistaniDrama",
+        "#DramaClips",
+        "#DramaScenes",
+    ]
+    return f"{title} | {category.title()} Scene\\n\\n{description}\\n\\n" + " ".join(hashtags)
+
 
 def read_sources():
     if not SOURCES_FILE.exists():
@@ -736,7 +772,10 @@ def main():
         music_meta = render_clip(selected_path, 0, category, output_path)
         public_url = upload_cloudinary(output_path)
         from publisher.buffer import queue_facebook_reel
-        caption = f"{category.title()} scene from a Pakistani drama. #PakistaniDrama #DramaClips"
+        caption = build_facebook_caption(
+            episode.get("title", "Pakistani Drama"),
+            category,
+        )
         queued = queue_facebook_reel(public_url, caption)
         save_history(history, episode["id"])
         log(
