@@ -212,49 +212,14 @@ def classify_local_video(video_path, work_dir):
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
             })
-        if gemini_api_key:
-            # Prefer Google's API directly so scene analysis does not require
-            # OpenRouter account credits. Images are sent as inline JPEG data.
-            gemini_parts = [{"text": prompt}]
-            for index, encoded in frames:
-                gemini_parts.append({"text": f"Candidate {index} frame:"})
-                gemini_parts.append({
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": encoded,
-                    }
-                })
-            response = post_with_retry(
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{model}:generateContent",
-                headers={
-                    "x-goog-api-key": gemini_api_key,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "contents": [{"parts": gemini_parts}],
-                    "generationConfig": {
-                        "temperature": 0.2,
-                        "responseMimeType": "application/json",
-                    },
-                },
-                timeout=180,
-            )
-            if response.status_code >= 400:
-                detail = response.text[:1200].replace(gemini_api_key, "[REDACTED]")
+        def classify_with_openrouter():
+            if not openrouter_api_key:
                 raise RuntimeError(
-                    f"Gemini scene-classification failed (HTTP {response.status_code}; "
-                    f"model={model}): {detail}"
+                    "OpenRouter fallback is unavailable. Add OPENROUTER_API_KEY "
+                    "as a GitHub Actions secret to enable automatic fallback."
                 )
-            payload = response.json()
-            raw = "".join(
-                str(part.get("text", ""))
-                for part in payload["candidates"][0]["content"]["parts"]
-                if isinstance(part, dict)
-            )
-        else:
-            # Paid OpenRouter fallback, used only when no direct Gemini key exists.
-            response = requests.post(
+            log("Using OpenRouter fallback for scene classification; this may incur API charges.")
+            fallback_response = post_with_retry(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {openrouter_api_key}",
@@ -267,15 +232,72 @@ def classify_local_video(video_path, work_dir):
                 },
                 timeout=180,
             )
-            if response.status_code >= 400:
-                detail = response.text[:1200].replace(openrouter_api_key, "[REDACTED]")
-                raise RuntimeError(
-                    f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
-                    f"model=google/gemini-3.8-flash): {detail}. "
-                    "Add GEMINI_API_KEY to use Google's API directly without OpenRouter credits."
+            if fallback_response.status_code >= 400:
+                detail = fallback_response.text[:1200].replace(
+                    openrouter_api_key, "[REDACTED]"
                 )
-            payload = response.json()
-            raw = payload["choices"][0]["message"]["content"]
+                raise RuntimeError(
+                    f"OpenRouter scene-classification failed "
+                    f"(HTTP {fallback_response.status_code}; "
+                    f"model=google/gemini-3.8-flash): {detail}"
+                )
+            fallback_payload = fallback_response.json()
+            return fallback_payload["choices"][0]["message"]["content"]
+
+        if gemini_api_key:
+            # Prefer Google's API directly. If it remains unavailable after retries,
+            # automatically use OpenRouter when its secret is configured.
+            gemini_parts = [{"text": prompt}]
+            for index, encoded in frames:
+                gemini_parts.append({"text": f"Candidate {index} frame:"})
+                gemini_parts.append({
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": encoded,
+                    }
+                })
+            try:
+                response = post_with_retry(
+                    "https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"{model}:generateContent",
+                    headers={
+                        "x-goog-api-key": gemini_api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "contents": [{"parts": gemini_parts}],
+                        "generationConfig": {
+                            "temperature": 0.2,
+                            "responseMimeType": "application/json",
+                        },
+                    },
+                    timeout=180,
+                )
+                if response.status_code >= 400:
+                    detail = response.text[:1200].replace(gemini_api_key, "[REDACTED]")
+                    raise RuntimeError(
+                        f"Gemini scene-classification failed "
+                        f"(HTTP {response.status_code}; model={model}): {detail}"
+                    )
+                payload = response.json()
+                raw = "".join(
+                    str(part.get("text", ""))
+                    for part in payload["candidates"][0]["content"]["parts"]
+                    if isinstance(part, dict)
+                )
+            except Exception as gemini_error:
+                if not openrouter_api_key:
+                    raise RuntimeError(
+                        f"{gemini_error} Add OPENROUTER_API_KEY as a GitHub Actions "
+                        "secret to enable automatic fallback."
+                    ) from gemini_error
+                log(
+                    f"Gemini scene analysis failed after retries "
+                    f"({str(gemini_error)[:250]}). Switching to OpenRouter."
+                )
+                raw = classify_with_openrouter()
+        else:
+            raw = classify_with_openrouter()
         if isinstance(raw, list):
             raw = " ".join(
                 str(part.get("text", "")) for part in raw if isinstance(part, dict)
