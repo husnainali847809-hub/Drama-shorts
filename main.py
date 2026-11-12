@@ -23,10 +23,17 @@ from yt_dlp import YoutubeDL
 ROOT = Path(__file__).resolve().parent
 SOURCES_FILE = ROOT / "resources" / "drama_sources.txt"
 RIGHTS_FILE = ROOT / "resources" / "rights.json"
-MUSIC_ROOT = ROOT / "assets" / "music"
+MUSIC_ROOT = ROOT / "dramas"
 STATE_FILE = ROOT / "state" / "processed.json"
 OUTPUT_DIR = ROOT / "output"
-CLIP_SECONDS = int(os.getenv("CLIP_SECONDS", "85"))
+ALLOWED_CLIP_SECONDS = {30, 45, 60, 180}
+CLIP_SECONDS = int(os.getenv("CLIP_SECONDS", "60"))
+if CLIP_SECONDS not in ALLOWED_CLIP_SECONDS:
+    raise ValueError(f"CLIP_SECONDS must be one of {sorted(ALLOWED_CLIP_SECONDS)}; got {CLIP_SECONDS}.")
+SCENE_PREFERENCE = os.getenv(
+    "SCENE_PREFERENCE",
+    "Choose the most coherent, engaging story moment with a clear beginning and payoff."
+).strip()
 ALLOWED_CATEGORIES = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
 
@@ -531,7 +538,11 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
     import io
 
     for index, start in enumerate(starts):
-        for frame_number, offset in enumerate((CLIP_SECONDS * 0.25, CLIP_SECONDS * 0.70)):
+        # Four ordered samples help the vision model judge continuity.
+        for frame_number, offset in enumerate((
+            CLIP_SECONDS * 0.15, CLIP_SECONDS * 0.38,
+            CLIP_SECONDS * 0.62, CLIP_SECONDS * 0.85,
+        )):
             frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
             extract_stream_frame(stream, start + offset, frame_path, video_url=video_url)
             with Image.open(frame_path) as image:
@@ -543,12 +554,18 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
             frames.append((index, encoded))
 
     prompt = (
-        "You are selecting a short Pakistani TV drama scene for an authorized social clip. "
-        "Inspect the frames grouped by candidate number. Choose the most engaging coherent candidate. "
-        "Classify it as exactly one of: action, emotional, comedy, romantic, suspense, interesting. "
-        "Do not invent plot details. Return ONLY JSON: "
-        '{"selected_candidate":0,"category":"interesting","reason":"brief visual reason"}. '
-        "Candidate number is the integer shown before each pair of frames."
+        "You are an expert drama-scene editor. User's scene preference: "
+        + (SCENE_PREFERENCE or "Choose the most coherent engaging story moment.")
+        + " Each candidate contains four frames in time order. Select the strongest "
+        "continuous scene: frames should belong to one understandable moment, with "
+        "a clear emotional or story beat. Prefer meaningful character interaction, "
+        "visible action, reaction, or payoff. Reject unrelated shots, empty establishing "
+        "shots, black frames, and candidates with confusing jumps. Do not infer dialogue "
+        "or plot facts that are not visible. Classify the visible mood as exactly one of: "
+        "action, emotional, comedy, romantic, suspense, interesting. Return ONLY JSON "
+        "with selected_candidate, category, reason, and scene_summary. "
+        '{"selected_candidate":0,"category":"interesting",'
+        '"reason":"clear character reaction","scene_summary":"two characters react to news"}.'
     )
     content = [{"type": "text", "text": prompt}]
     for index, encoded in frames:
