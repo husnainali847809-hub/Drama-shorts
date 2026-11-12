@@ -682,13 +682,15 @@ def adaptive_clip_seconds(source_path, start, category):
 
     # Keep a coherent story beat long enough to develop, without forcing
     # every mood into the same duration.
+    # Buffer's Facebook Reels destination rejects videos longer than 90 seconds.
+    # Keep every category within that platform limit.
     targets = {
         "comedy": 45,
         "interesting": 60,
         "action": 75,
         "romantic": 90,
         "suspense": 90,
-        "emotional": 120,
+        "emotional": 90,
     }
     target = targets.get(str(category or "interesting").lower(), 60)
     source = VideoFileClip(str(source_path))
@@ -697,7 +699,7 @@ def adaptive_clip_seconds(source_path, start, category):
     finally:
         source.close()
 
-    duration = min(float(target), available, 180.0)
+    duration = min(float(target), available, 90.0)
     duration = int(duration)
     if duration < 10:
         raise RuntimeError(
@@ -706,7 +708,7 @@ def adaptive_clip_seconds(source_path, start, category):
         )
     log(
         f"Adaptive scene duration: {duration}s "
-        f"(category={category}, target={target}s, hard_max=180s)."
+        f"(category={category}, target={target}s, hard_max=90s)."
     )
     return duration
 
@@ -715,7 +717,8 @@ def render_clip(source_path, start, category, output_path, clip_seconds=None):
     """Use the shared three-style professional editing engine."""
     from editing_engine import render_professional_clip
     duration = int(clip_seconds or adaptive_clip_seconds(source_path, start, category))
-    duration = max(10, min(duration, 180))
+    # Final renderer-level guard: never create a Facebook Reel over 90 seconds.
+    duration = max(10, min(duration, 90))
     return render_professional_clip(
         source_path,
         start,
