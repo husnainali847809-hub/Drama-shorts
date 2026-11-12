@@ -97,6 +97,30 @@ def fit_vertical(clip):
     )
 
 
+def find_first_dialogue_pause(audio, duration, fallback=3.5):
+    """Estimate the first short dialogue break; use a safe fallback if unclear."""
+    if audio is None:
+        return fallback
+    try:
+        samples = audio.to_soundarray(fps=8000)
+        if samples.ndim == 2:
+            samples = np.mean(samples, axis=1)
+        window = 2000  # 0.25 seconds at 8 kHz
+        levels = []
+        for offset in range(0, len(samples) - window, window):
+            chunk = samples[offset:offset + window]
+            levels.append(float(np.sqrt(np.mean(np.square(chunk)))))
+        # Require two consecutive quiet windows after the opening line.
+        for index in range(max(6, int(1.5 * 8000 / window)), len(levels) - 1):
+            if levels[index] < 0.012 and levels[index + 1] < 0.012:
+                pause_at = index * 0.25 + 0.15
+                if 1.5 <= pause_at < min(float(duration) - 1.0, 12.0):
+                    return round(pause_at, 2)
+    except Exception as exc:
+        log(f"Dialogue pause detection unavailable; using {fallback:.1f}s fallback ({exc}).")
+    return fallback
+
+
 def make_music_layer(path, duration, start_at, volume):
     track = AudioFileClip(str(path))
     needed = max(0.1, duration - start_at)
@@ -154,7 +178,7 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
         if music_path:
             # For dialogue-to-song edits, leave the opening line clear, then bring
             # the licensed song in underneath the continuing original dialogue.
-            music_start = 3.5 if style == "dialogue_to_song" else 0.0
+            music_start = find_first_dialogue_pause(vertical.audio, vertical.duration) if style == "dialogue_to_song" else 0.0
             music_volume = 0.22 if style == "dialogue_to_song" else 0.13
             music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
             audio_layers.append(music)
