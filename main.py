@@ -741,7 +741,7 @@ def adaptive_clip_seconds(source_path, start, category):
     return duration
 
 
-def render_clip(source_path, start, category, output_path, clip_seconds=None):
+def render_clip(source_path, start, category, output_path, clip_seconds=None, music_dir=None):
     """Use the shared three-style professional editing engine."""
     from editing_engine import render_professional_clip
     duration = int(clip_seconds or adaptive_clip_seconds(source_path, start, category))
@@ -753,6 +753,7 @@ def render_clip(source_path, start, category, output_path, clip_seconds=None):
         category,
         output_path,
         clip_seconds=duration,
+        music_dir=music_dir,
     )
 
 def upload_cloudinary(video_path):
