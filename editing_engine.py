@@ -146,7 +146,7 @@ def _declared_track_mood(track):
     return labels
 
 
-def find_music(category):
+def find_music(category, extra_music_dirs=None):
     """Rank plausible tracks using mood labels plus measured audio features.
 
     Audio analysis estimates energy and brightness; it does not understand lyrics
@@ -159,12 +159,17 @@ def find_music(category):
     # Match audio files placed in the configured music folders.
     # No sidecar metadata file is required.
     tracks = []
-    for root in MUSIC_ROOTS:
+    search_roots = list(MUSIC_ROOTS)
+    for extra_dir in (extra_music_dirs or []):
+        if extra_dir:
+            search_roots.append(Path(extra_dir))
+    for root in search_roots:
         if not root.exists():
             continue
         for track in root.rglob("*"):
             if track.is_file() and track.suffix.lower() in AUDIO_EXTENSIONS:
                 tracks.append(track)
+    tracks = list(dict.fromkeys(tracks))
     tracks = sorted(tracks)
     if not tracks:
         searched = ", ".join(str(root.relative_to(PROJECT_ROOT)) for root in MUSIC_ROOTS)
@@ -329,7 +334,7 @@ def make_music_layer(path, duration, start_at, volume):
     return track
 
 
-def render_professional_clip(source_path, start, category, output_path, clip_seconds=85):
+def render_professional_clip(source_path, start, category, output_path, clip_seconds=85, music_dir=None):
     source = VideoFileClip(str(source_path))
     selected = None
     vertical = None
@@ -363,7 +368,7 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             # A subtle opening/closing fade avoids abrupt starts without hiding dialogue.
             vertical = vertical.with_effects([vfx.FadeIn(0.25), vfx.FadeOut(0.35)])
 
-        music_path = find_music(category)
+        music_path = find_music(category, extra_music_dirs=[music_dir] if music_dir else None)
         if music_path is None:
             generated_music_dir = tempfile.TemporaryDirectory(prefix="drama-original-music-")
             music_path = generate_original_music(
