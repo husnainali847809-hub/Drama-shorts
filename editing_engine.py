@@ -329,15 +329,68 @@ def find_first_dialogue_pause(audio, duration, fallback=3.5):
     return fallback
 
 
+def _find_strong_music_offset(path, probe_seconds=180, window_seconds=6):
+    """Find a strong, steady section so the reel does not begin with a weak intro."""
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-i", str(path), "-t", str(probe_seconds), "-vn",
+        "-ac", "1", "-ar", "11025", "-f", "f32le", "pipe:1",
+    ]
+    result = subprocess.run(command, capture_output=True, timeout=90)
+    if result.returncode != 0 or not result.stdout:
+        log("Could not analyse music start; using the track beginning.")
+        return 0.0
+
+    samples = np.nan_to_num(np.frombuffer(result.stdout, dtype=np.float32))
+    sample_rate = 11025
+    window = max(sample_rate, int(window_seconds * sample_rate))
+    if samples.size < window:
+        return 0.0
+
+    # Score overlapping windows once per second; prefer a consistently strong
+    # section rather than a single loud click or transient.
+    hop = sample_rate
+    scores = []
+    for offset in range(0, samples.size - window + 1, hop):
+        chunk = samples[offset:offset + window]
+        scores.append(float(np.sqrt(np.mean(chunk * chunk))))
+
+    if not scores:
+        return 0.0
+    best_score = max(scores)
+    if best_score < 0.003:
+        return 0.0
+
+    # If several sections are almost equally strong, use the earliest one.
+    threshold = best_score * 0.97
+    best_index = next((i for i, score in enumerate(scores) if score >= threshold), int(np.argmax(scores)))
+    offset_seconds = float(best_index)
+    if offset_seconds >= 1.0:
+        log(f"Skipping weak music intro; strongest suitable section begins at {offset_seconds:.1f}s.")
+    return offset_seconds
+
+
 def make_music_layer(path, duration, start_at, volume):
     track = AudioFileClip(str(path))
     needed = max(0.1, duration - start_at)
-    if track.duration < needed:
-        repeats = int(math.ceil(needed / max(track.duration, 0.1)))
-        looped = concatenate_audioclips([track] * repeats)
-        track = looped
-    track = track.subclipped(0, needed).with_start(start_at).with_volume_scaled(volume)
-    return track
+    offset = _find_strong_music_offset(path)
+    offset = min(max(0.0, offset), max(0.0, track.duration - 0.1))
+
+    # Start the selected strong section exactly when the reel starts. If the
+    # remaining song is shorter than the reel, continue from the track beginning.
+    segments = []
+    available = max(0.1, track.duration - offset)
+    first_length = min(needed, available)
+    segments.append(track.subclipped(offset, offset + first_length))
+    remaining = needed - first_length
+    while remaining > 0.05:
+        take = min(remaining, track.duration)
+        segments.append(track.subclipped(0, take))
+        remaining -= take
+
+    selected_track = segments[0] if len(segments) == 1 else concatenate_audioclips(segments)
+    return selected_track.with_start(start_at).with_volume_scaled(volume)
 
 
 def render_professional_clip(source_path, start, category, output_path, clip_seconds=85, music_dir=None):
@@ -395,8 +448,10 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
 
         # Keep opening dialogue audible for dialogue-led scenes; use a quiet
         # instrumental bed for every category rather than leaving music absent.
-        music_start = find_first_dialogue_pause(vertical.audio, vertical.duration) if style == "dialogue_to_song" else 0.0
-        music_volume = 0.18 if style == "dialogue_to_song" else 0.12
+        # Music begins with the reel; the weak song intro is skipped by the
+        # strongest-section detector in make_music_layer().
+        music_start = 0.0
+        music_volume = 0.32
         music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
         audio_layers.append(music)
         if not music_meta.get("generated"):
