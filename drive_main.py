@@ -73,12 +73,18 @@ class NoUnusedSceneWindows(RuntimeError):
     """Raised when this episode has no remaining distinct candidate windows."""
 
 
-def newest_unprocessed_video(token, history):
-    folder_id = required_env("DRIVE_FOLDER_ID")
+DRAMA_NAMES = {
+    "hurmat": ("hurmat",),
+    "dar-e-nijaat": ("dar e nijat", "dar e nijaat", "dar-e-nijaat", "dar-e-nijaat"),
+    "mitti-da-daway": ("mitti da daway", "mitti da dava", "mitti da dawa", "mitti da daway"),
+}
+
+
+def _list_drive_children(token, folder_id):
     params = {
-        "q": f"'{folder_id}' in parents and trashed = false and mimeType contains 'video/'",
-        "pageSize": 100,
-        "orderBy": "modifiedTime desc",
+        "q": f"'{folder_id}' in parents and trashed = false",
+        "pageSize": 1000,
+        "orderBy": "name",
         "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink,parents)",
         "supportsAllDrives": "true",
         "includeItemsFromAllDrives": "true",
@@ -87,37 +93,83 @@ def newest_unprocessed_video(token, history):
         f"{DRIVE_API}/files", headers=drive_headers(token), params=params, timeout=45
     )
     if response.status_code >= 400:
-        raise RuntimeError(
-            "Google Drive could not list the configured folder. Check DRIVE_FOLDER_ID, "
-            "Drive API enablement, and that the OAuth account can access the folder. "
-            + response.text[:300]
-        )
-    files = response.json().get("files", [])
-    for item in files:
-        if item.get("id") and item["id"] not in history.get("video_ids", []):
-            return item
+        raise RuntimeError("Google Drive could not list a drama folder: " + response.text[:300])
+    return response.json().get("files", [])
+
+
+def _walk_drive_folder(token, folder_id, parent_labels=(), depth=0):
+    if depth > 3:
+        return []
+    found = []
+    for item in _list_drive_children(token, folder_id):
+        name = str(item.get("name", ""))
+        if item.get("mimeType") == "application/vnd.google-apps.folder":
+            found.extend(_walk_drive_folder(
+                token, item["id"], parent_labels + (name,), depth + 1
+            ))
+        elif item.get("mimeType", "").startswith("video/"):
+            item["_folder_labels"] = list(parent_labels)
+            found.append(item)
+    return found
+
+
+def _drama_key(item):
+    searchable = " ".join(
+        [str(item.get("name", ""))] + list(item.get("_folder_labels", []))
+    ).lower().replace("_", " ").replace("-", " ")
+    compact = re.sub(r"[^a-z0-9]+", " ", searchable)
+    for key, aliases in DRAMA_NAMES.items():
+        if any(re.sub(r"[^a-z0-9]+", " ", alias.lower()).strip() in compact for alias in aliases):
+            return key
     return None
 
 
-def list_folder_audio(token, folder_id):
-    """Find audio files stored beside the drama videos in the configured Drive folder."""
-    params = {
-        "q": f"'{folder_id}' in parents and trashed = false and mimeType contains 'audio/'",
-        "pageSize": 100,
-        "orderBy": "name",
-        "fields": "files(id,name,mimeType,size)",
-        "supportsAllDrives": "true",
-        "includeItemsFromAllDrives": "true",
-    }
-    response = requests.get(
-        f"{DRIVE_API}/files", headers=drive_headers(token), params=params, timeout=45
-    )
-    if response.status_code >= 400:
-        raise RuntimeError("Google Drive could not list music files: " + response.text[:300])
-    audio_files = response.json().get("files", [])
-    log(f"Found {len(audio_files)} audio file(s) beside the drama videos in Google Drive.")
-    return audio_files
+def newest_unprocessed_video(token, history):
+    folder_id = required_env("DRIVE_FOLDER_ID")
+    files = _walk_drive_folder(token, folder_id)
+    processed = set(history.get("video_ids", []))
+    candidates = [
+        item for item in files
+        if item.get("id") and item["id"] not in processed and _drama_key(item)
+    ]
+    if not candidates:
+        unknown = [item.get("name", "") for item in files if item.get("id") not in processed]
+        if unknown:
+            log("Skipped videos not matching the three configured drama names: " + ", ".join(unknown[:8]))
+        return None
 
+    # Strict round-robin: Hurmat -> Dar-e-Nijaat -> Mitti Da Daway -> repeat.
+    order = list(DRAMA_NAMES)
+    last = history.get("drama_last", "")
+    next_index = (order.index(last) + 1) % len(order) if last in order else 0
+    for offset in range(len(order)):
+        wanted = order[(next_index + offset) % len(order)]
+        matching = [item for item in candidates if _drama_key(item) == wanted]
+        if matching:
+            matching.sort(key=lambda item: item.get("modifiedTime", ""), reverse=True)
+            chosen = matching[0]
+            chosen["_drama_key"] = wanted
+            log(f"Round-robin selected drama '{wanted}' from {len(matching)} unseen episode(s).")
+            return chosen
+
+    return None
+
+def list_folder_audio(token, folder_id):
+    """Find audio tracks in the dramas folder and its nested drama/music folders."""
+    found = []
+
+    def walk(current_id, depth=0):
+        if depth > 3:
+            return
+        for item in _list_drive_children(token, current_id):
+            if item.get("mimeType") == "application/vnd.google-apps.folder":
+                walk(item["id"], depth + 1)
+            elif item.get("mimeType", "").startswith("audio/"):
+                found.append(item)
+
+    walk(folder_id)
+    log(f"Found {len(found)} audio file(s) in the dramas folder and its subfolders.")
+    return found
 
 def download_drive_file(token, item, destination):
     """Download a Drive audio file to the temporary work directory."""
@@ -539,7 +591,7 @@ def main():
             "Upload a supported video file into that folder and check DRIVE_FOLDER_ID."
         )
 
-    log(f"Found new Drive video: {item.get('name', item['id'])}.")
+    log(f"Found new Drive video: {item.get('name', item['id'])} (drama={item.get('_drama_key')}).")
     pipeline.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="drive-video-work-") as work_dir:
         safe_name = Path(item.get("name") or "drive_video.mp4").name
@@ -593,7 +645,7 @@ def main():
             scene_summary=scene_summary,
         )
         queued = queue_facebook_reel(public_url, caption)
-        pipeline.save_history(history, item["id"], clip_start=start, max_clips=4)
+        pipeline.save_history(history, item["id"], clip_start=start, max_clips=4, drama_key=item.get("_drama_key"))
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
             f"file={item.get('name')}; duration={clip_seconds}s; music="
