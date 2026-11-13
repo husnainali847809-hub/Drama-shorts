@@ -133,12 +133,18 @@ def read_history():
         return {
             "video_ids": list(data.get("video_ids", []))[-1000:],
             "video_clips": clean_clips,
+            "drama_last": str(data.get("drama_last", "")),
+            "drama_counts": {
+                str(key): max(0, int(value))
+                for key, value in (data.get("drama_counts", {}) or {}).items()
+                if isinstance(value, (int, float))
+            },
         }
     except (ValueError, OSError, TypeError):
-        return {"video_ids": [], "video_clips": {}}
+        return {"video_ids": [], "video_clips": {}, "drama_last": "", "drama_counts": {}}
 
 
-def save_history(history, video_id, clip_start=None, max_clips=4):
+def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None):
     ids = list(history.get("video_ids", []))
     clips = dict(history.get("video_clips", {}))
     if clip_start is None:
@@ -157,6 +163,13 @@ def save_history(history, video_id, clip_start=None, max_clips=4):
         json.dumps({
             "video_ids": ids[-1000:],
             "video_clips": dict(list(clips.items())[-1000:]),
+            "drama_last": str(drama_key or history.get("drama_last", "")),
+            "drama_counts": {
+                **(history.get("drama_counts", {}) or {}),
+                **({
+                    str(drama_key): int((history.get("drama_counts", {}) or {}).get(str(drama_key), 0)) + 1
+                } if drama_key else {}),
+            },
         }, indent=2),
         encoding="utf-8",
     )
