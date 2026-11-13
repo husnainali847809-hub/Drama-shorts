@@ -451,7 +451,8 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
         # Music begins with the reel; the weak song intro is skipped by the
         # strongest-section detector in make_music_layer().
         music_start = 0.0
-        music_volume = 0.32
+        music_volume = float(os.getenv("DRAMA_MUSIC_VOLUME", "0.38"))
+        music_volume = max(0.20, min(0.48, music_volume))
         music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
         audio_layers.append(music)
         if not music_meta.get("generated"):
@@ -478,7 +479,7 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             threads=2,
             logger=None,
         )
-        log(f"Rendered 1080x1920 video using '{style}' editing.")
+        log(f"Rendered 1080x1920 video using '{style}' editing; background music volume={music_volume:.2f}.")
         return music_meta
     finally:
         if rendered is not None and rendered is not vertical:
