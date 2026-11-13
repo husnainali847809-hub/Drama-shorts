@@ -2,11 +2,12 @@ name: Pakistani Drama Clips Automation
 
 on:
   schedule:
-    # Four daily runs: 09:00, 13:00, 17:00, 21:00 Pakistan Standard Time (UTC+5)
-    - cron: "0 4 * * *"
-    - cron: "0 8 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 16 * * *"
+    # Start 30 minutes early; Buffer schedules the completed Reel at
+    # 09:00, 13:00, 17:00, 21:00 Pakistan time using customScheduled.
+    - cron: "30 3 * * *"
+    - cron: "30 7 * * *"
+    - cron: "30 11 * * *"
+    - cron: "30 15 * * *"
   workflow_dispatch:
 
 permissions:
