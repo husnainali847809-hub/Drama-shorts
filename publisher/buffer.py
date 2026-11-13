@@ -1,6 +1,8 @@
 import json
 import os
 import requests
+from datetime import datetime, time as dt_time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 BUFFER_URL = "https://api.buffer.com"
 
@@ -49,17 +51,39 @@ def verify_channel():
     return channel
 
 
+def next_publish_time():
+    """Return the next fixed Pakistan-time publishing slot as a UTC ISO timestamp."""
+    tz = ZoneInfo("Asia/Karachi")
+    now = datetime.now(tz)
+    slots = (dt_time(9, 0), dt_time(13, 0), dt_time(17, 0), dt_time(21, 0))
+    candidates = []
+    for day_offset in (0, 1):
+        target_date = now.date() + timedelta(days=day_offset)
+        for slot in slots:
+            candidate = datetime.combine(target_date, slot, tzinfo=tz)
+            # Leave a small buffer so rendering/upload finishing close to a slot
+            # does not result in a past-due schedule.
+            if candidate > now + timedelta(minutes=5):
+                candidates.append(candidate)
+    if not candidates:
+        raise RuntimeError("Could not calculate the next Facebook publishing slot.")
+    target = min(candidates)
+    return target.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def queue_facebook_reel(video_url, caption):
     verify_channel()
     channel_id = _need("BUFFER_CHANNEL_ID")
     if not video_url.startswith("https://res.cloudinary.com/"):
         raise RuntimeError("Only a public Cloudinary HTTPS video URL may be queued.")
+    due_at = next_publish_time()
     mutation = f'''mutation QueueMovieFacebookReel {{
       createPost(input: {{
         text: {json.dumps(caption, ensure_ascii=False)}
         channelId: {json.dumps(channel_id)}
         schedulingType: automatic
-        mode: addToQueue
+        mode: customScheduled
+        dueAt: {json.dumps(due_at)}
         assets: [{{ video: {{ url: {json.dumps(video_url)} }} }}]
         metadata: {{ facebook: {{ type: reel }} }}
         aiAssisted: false
