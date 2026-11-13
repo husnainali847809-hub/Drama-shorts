@@ -19,9 +19,8 @@ concurrency:
 
 jobs:
   create-and-queue:
-    if: >-
-      (github.event_name == 'schedule' && vars.ENABLE_AUTO_PUBLISH == 'true') ||
-      github.event_name == 'workflow_dispatch'
+    # Scheduled publishing is enabled; no repository variable gate required.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
