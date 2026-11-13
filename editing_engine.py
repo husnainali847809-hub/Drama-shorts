@@ -139,7 +139,13 @@ _MOOD_WORDS = {
 def _declared_track_mood(track):
     """Read mood hints from both filename and any nested folder names."""
     labels = set()
-    searchable = str(track.relative_to(PROJECT_ROOT)).lower().replace("-", "_").replace(" ", "_")
+    try:
+        searchable_path = track.resolve().relative_to(PROJECT_ROOT.resolve())
+    except ValueError:
+        # Google Drive downloads are staged in a temporary work directory,
+        # outside the repository. Mood detection must still use their names.
+        searchable_path = Path(track.name)
+    searchable = str(searchable_path).lower().replace("-", "_").replace(" ", "_")
     for mood, words in _MOOD_WORDS.items():
         if any(word in searchable for word in words):
             labels.add(mood)
