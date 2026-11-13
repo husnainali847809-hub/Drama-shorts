@@ -407,6 +407,16 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
             })
 
         errors = []
+        # Keep the fallback list aligned with the AI services configured in this
+        # repository: Gemini direct API above, then OpenRouter if its secret exists.
+        provider_specs = [
+            (
+                "OpenRouter",
+                "OPENROUTER_API_KEY",
+                "https://openrouter.ai/api/v1/chat/completions",
+                os.getenv("OPENROUTER_MODEL", "").strip() or "google/gemini-2.5-flash",
+            ),
+        ]
         # Google model variants are attempted first; quota exhaustion may affect
         # the whole project, but another available model can still respond.
         if gemini_api_key:
