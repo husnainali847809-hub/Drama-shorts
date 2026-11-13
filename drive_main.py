@@ -476,79 +476,23 @@ def classify_local_video(video_path, work_dir, excluded_starts=None):
         clip.close()
 
 def clean_title_from_filename(filename):
-    """Use the supplied source title as the drama label; never invent a show name."""
+    """Clean a drama filename into a readable title."""
     title = Path(filename or "").stem
-    title = re.sub(r"\(\s*\d{3,        # Use only the two AI services already present in this system.
-        # Discover free vision models using the existing OpenRouter key.
-        openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if openrouter_key:
-            model_candidates = []
-            configured_model = os.getenv("OPENROUTER_MODEL", "").strip()
-            if configured_model:
-                model_candidates.append(configured_model)
-            try:
-                catalog_response = requests.get(
-                    "https://openrouter.ai/api/v1/models",
-                    headers={"Authorization": f"Bearer {openrouter_key}"},
-                    timeout=(15, 30),
-                )
-                if catalog_response.status_code < 400:
-                    catalog = catalog_response.json().get("data", [])
-                    free_vision_models = []
-                    for item in catalog:
-                        architecture = item.get("architecture") or {}
-                        pricing = item.get("pricing") or {}
-                        modalities = architecture.get("input_modalities") or []
-                        prompt_price = str(pricing.get("prompt", ""))
-                        completion_price = str(pricing.get("completion", ""))
-                        model_id = str(item.get("id", "")).strip()
-                        if (
-                            model_id
-                            and "image" in modalities
-                            and prompt_price in {"0", "0.0", "0.000000"}
-                            and completion_price in {"0", "0.0", "0.000000"}
-                        ):
-                            free_vision_models.append(model_id)
-                    for model_id in free_vision_models:
-                        if model_id not in model_candidates:
-                            model_candidates.append(model_id)
-                else:
-                    errors.append(
-                        f"OpenRouter model catalog HTTP {catalog_response.status_code}: "
-                        f"{catalog_response.text[:180]}"
-                    )
-            except Exception as exc:
-                errors.append(f"OpenRouter model discovery: {str(exc)[:180]}")
+    title = re.sub(r"\b(official|full|hd|4k|1080p|720p|480p)\b", " ", title, flags=re.I)
+    title = title.replace("_", " ").replace("-", " ")
+    title = re.sub(r"\s+", " ", title).strip(" ._-")
+    return title[:80] or "Pakistani Drama"
 
-            # A daily free-tier quota applies across free routes. Stop on a
-            # hard quota response rather than repeatedly calling the same limit.
-            for model in model_candidates[:8]:
-                try:
-                    log(f"Trying available OpenRouter vision model '{model}'.")
-                    raw = _openai_vision_request(
-                        "OpenRouter",
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        openrouter_key,
-                        model,
-                        openai_content,
-                    )
-                    result = _validate_scene_result(raw, starts)
-                    log(f"Scene classification succeeded with OpenRouter ({model}).")
-                    return result
-                except Exception as exc:
-                    detail = str(exc)
-                    errors.append(f"OpenRouter/{model}: {detail[:220]}")
-                    log(f"OpenRouter model '{model}' unavailable; checking remaining options.")
-                    if "HTTP 429" in detail and any(
-                        term in detail.lower()
-                        for term in ("free-models-per-day", "daily limit", "rate limit exceeded")
-                    ):
-                        log("OpenRouter free daily quota exhausted; skipping remaining free models.")
-                        break
 
-        if errors:
-            log("Configured cloud AI fallback chain exhausted: " + " | ".join(errors[:8]))
-        return _local_visual_fallback(frames, starts)= {
+def build_facebook_caption(source_title, category, reason="", scene_summary=""):
+    """Create a scene-aware Facebook caption with exactly five relevant hashtags."""
+    category = str(category or "interesting").strip().lower()
+    allowed = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
+    if category not in allowed:
+        category = "interesting"
+
+    title = os.getenv("DRAMA_TITLE", "").strip() or clean_title_from_filename(source_title)
+    default_descriptions = {
         "romantic": "A beautiful romantic moment filled with warmth and emotion. ❤️",
         "emotional": "A powerful emotional moment that touches the heart. 💔",
         "comedy": "A light-hearted moment that brings a smile. 😄",
@@ -556,16 +500,14 @@ def clean_title_from_filename(filename):
         "suspense": "A gripping moment full of tension and suspense. 👀",
         "interesting": "A memorable drama moment worth watching. ✨",
     }
-    description = scene_lines[category]
-    # Use the model's visual summary only when it is short and grounded.
+    description = default_descriptions[category]
     summary = re.sub(r"\s+", " ", str(scene_summary or "")).strip()
     if summary and len(summary) <= 180:
         description = summary.rstrip(".") + "."
 
-    hashtag_title = re.sub(r"[^A-Za-z0-9]", "", drama_title.title().replace(" ", ""))
-    hashtag_title = hashtag_title[:32] or "PakistaniDrama"
+    title_tag = re.sub(r"[^A-Za-z0-9]", "", title.title().replace(" ", ""))[:32]
     candidates = [
-        f"#{hashtag_title}",
+        f"#{title_tag or 'PakistaniDrama'}",
         f"#{category.title()}Scene",
         "#PakistaniDrama",
         "#DramaClips",
@@ -574,13 +516,7 @@ def clean_title_from_filename(filename):
         "#PakDrama",
     ]
     hashtags = list(dict.fromkeys(candidates))[:5]
-    caption = (
-        f"{drama_title} | {category.title()} Scene\n\n"
-        f"{description}\n\n"
-        + " ".join(hashtags)
-    )
-    return caption
-
+    return f"{title} | {category.title()} Scene\n\n{description}\n\n" + " ".join(hashtags)
 
 def main():
     pipeline.require_rights()
