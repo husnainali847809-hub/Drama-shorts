@@ -1,114 +1,126 @@
 #!/usr/bin/env python3
-"""Create a standalone, original 2D animated-drama demo. No source footage or publishing integrations."""
-from PIL import Image, ImageDraw, ImageFont
-import math, os, subprocess, tempfile
+"""AI anime pilot: Fal image generation + Kling image-to-video + Urdu TTS.
+Standalone demo only. Does not read drama footage or publish to any platform.
+"""
+import asyncio, os, subprocess, tempfile, requests
+from pathlib import Path
+import fal_client
 
-W, H, FPS, SECONDS = 720, 1280, 24, 18
-OUT = "animated_drama_demo.mp4"
-os.makedirs("demo_output", exist_ok=True)
-OUT = "demo_output/animated_drama_demo.mp4"
+OUT = Path("demo_output/ai_anime_demo.mp4")
+OUT.parent.mkdir(parents=True, exist_ok=True)
+FAL_KEY = os.environ.get("FAL_KEY")
+if not FAL_KEY:
+    raise SystemExit("Missing FAL_KEY GitHub Actions secret. Add a Fal.ai API key to run AI video generation.")
 
-def font(size, bold=False):
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size)
-    return ImageFont.load_default()
+os.environ["FAL_KEY"] = FAL_KEY
+FFMPEG = "ffmpeg"
 
-def rounded(draw, xy, radius, fill, outline=None, width=1):
-    draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
+CHARACTERS = (
+    "Two consistent fictional adult Pakistani anime characters, both clearly adults, "
+    "Ayesha age 24 with long dark hair and teal shalwar kameez, Hamza age 26 with short "
+    "dark hair and navy kurta. High-end 2D anime film illustration, expressive readable "
+    "faces, detailed cinematic living room at night, warm practical lighting, vertical "
+    "9:16 composition, polished professional anime art, no text, no watermark."
+)
+SCENES = [
+    ("Ayesha turns toward Hamza, raises one hand with a worried expression, her hair and "
+     "clothes move naturally, subtle camera push-in, expressive anime acting.",
+     "عائشہ: تم نے مجھ سے سچ کیوں چھپایا؟", "ur-PK-UzmaNeural"),
+    ("Hamza looks down, then slowly looks up and gestures with an open hand, regretful "
+     "expression, natural body movement, subtle camera movement.",
+     "حمزہ: میں تمہیں پریشان نہیں کرنا چاہتا تھا۔", "ur-PK-AsadNeural"),
+    ("Ayesha takes a small step back, then both characters look at each other in silence, "
+     "emotional facial expressions, cinematic camera pull-back, natural movement.",
+     "عائشہ: لیکن سچ جاننا میرا حق تھا۔", "ur-PK-UzmaNeural"),
+]
 
-def character(draw, x, y, outfit, skin, hair, facing, talking=False, bob=0):
-    # Original, deliberately stylized fictional adult character.
-    y += bob
-    draw.ellipse((x-92, y+270, x+92, y+300), fill=(20, 24, 38, 90))
-    rounded(draw, (x-76, y+125, x+76, y+285), 42, outfit)
-    # neck and head
-    rounded(draw, (x-22, y+95, x+22, y+150), 12, skin)
-    draw.ellipse((x-66, y-5, x+66, y+130), fill=skin)
-    # hair
-    if facing == "right":
-        draw.pieslice((x-70, y-18, x+70, y+100), 180, 355, fill=hair)
-    else:
-        draw.pieslice((x-70, y-18, x+70, y+100), 185, 360, fill=hair)
-    eye_x = x + (22 if facing == "right" else -22)
-    draw.ellipse((eye_x-6, y+55, eye_x+6, y+68), fill=(35, 30, 30))
-    # nose and mouth
-    draw.arc((x-16, y+68, x+18, y+100), 5, 170, fill=(110, 55, 55), width=3)
-    if talking:
-        draw.ellipse((x-12, y+88, x+12, y+105), fill=(90, 35, 45))
-    else:
-        draw.arc((x-15, y+82, x+15, y+103), 5, 170, fill=(90, 35, 45), width=3)
-    # simple garment details
-    draw.line((x, y+150, x, y+275), fill=(235, 225, 210), width=3)
-    draw.line((x-45, y+180, x+45, y+180), fill=(235, 225, 210), width=2)
+def run(args):
+    subprocess.run(args, check=True)
 
-def draw_frame(t, frame):
-    im = Image.new("RGB", (W, H), (18, 27, 48))
-    d = ImageDraw.Draw(im, "RGBA")
-    # dusk window and room
-    d.rectangle((0, 0, W, 760), fill=(29, 43, 70))
-    d.rectangle((45, 100, 310, 570), fill=(53, 87, 125))
-    d.rectangle((60, 115, 295, 555), fill=(84, 127, 164))
-    d.line((177, 115, 177, 555), fill=(225, 218, 195), width=10)
-    d.line((60, 330, 295, 330), fill=(225, 218, 195), width=10)
-    d.ellipse((220, 155, 275, 210), fill=(246, 218, 153))
-    d.rectangle((0, 760, W, H), fill=(69, 52, 52))
-    # wall art and sofa
-    rounded(d, (420, 145, 650, 390), 12, (45, 54, 74), (196, 174, 142), 6)
-    d.ellipse((485, 205, 585, 305), fill=(202, 143, 103))
-    rounded(d, (65, 820, 655, 1120), 55, (83, 77, 91))
-    rounded(d, (95, 790, 625, 990), 45, (111, 93, 104))
-    # two original fictional adult characters
-    bob1 = int(4*math.sin(t*2))
-    bob2 = int(4*math.sin(t*2+1.2))
-    character(d, 245, 500, (27, 133, 133), (190, 128, 94), (43, 31, 28), "right", talking=(5.0 < t < 9.0), bob=bob1)
-    character(d, 510, 500, (42, 58, 93), (205, 145, 108), (31, 26, 26), "left", talking=(11.0 < t < 15.0), bob=bob2)
-    # gentle cinematic panel
-    d.rectangle((0, 0, W, 105), fill=(5, 10, 20, 180))
-    d.text((38, 34), "AN ORIGINAL ANIMATED STORY", font=font(28, True), fill=(255, 220, 125))
-    # dialogue captions
-    if t < 5:
-        caption = "A difficult truth was about to come out..."
-    elif t < 10:
-        caption = "Ayesha: Why did you hide the truth from me?"
-    elif t < 16:
-        caption = "Hamza: I didn't want to hurt you."
-    else:
-        caption = "Some truths change everything."
-    rounded(d, (34, 1135, 686, 1235), 22, (5, 9, 18, 220))
-    # wrap text
-    words, lines, line = caption.split(), [], ""
-    for word in words:
-        test = (line + " " + word).strip()
-        if d.textbbox((0,0), test, font=font(25, True))[2] > 600:
-            lines.append(line); line = word
-        else:
-            line = test
-    if line: lines.append(line)
-    for i, txt in enumerate(lines[:2]):
-        d.text((60, 1153+i*35), txt, font=font(25, True), fill=(255,255,255))
-    return im.convert("RGB")
+def download(url, path):
+    r = requests.get(url, timeout=180)
+    r.raise_for_status()
+    Path(path).write_bytes(r.content)
+
+async def make_voice(text, voice, path):
+    proc = await asyncio.create_subprocess_exec(
+        "edge-tts", "--voice", voice, "--text", text, "--write-media", str(path),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    _, err = await proc.communicate()
+    if proc.returncode:
+        raise RuntimeError(err.decode("utf-8", "replace"))
 
 def main():
-    ffmpeg = "/usr/bin/ffmpeg"
-    if not os.path.exists(ffmpeg):
-        import imageio_ffmpeg
-        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    with tempfile.TemporaryDirectory() as td:
-        pattern = os.path.join(td, "frame_%05d.png")
-        for i in range(FPS*SECONDS):
-            frame = draw_frame(i/FPS, i)
-            frame.save(pattern % i)
-        subprocess.run([ffmpeg, "-y", "-framerate", str(FPS), "-i",
-                        os.path.join(td, "frame_%05d.png"), "-c:v", "libx264",
-                        "-pix_fmt", "yuv420p", "-movflags", "+faststart", OUT],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    print(f"Created original animated demo: {OUT}")
-    print("Duration: 18 seconds | Format: 720x1280 MP4 | Publishing: disabled")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        print("Generating original anime keyframe...")
+        key = fal_client.subscribe(
+            "fal-ai/flux/dev",
+            arguments={"prompt": CHARACTERS, "image_size": "portrait_16_9",
+                       "num_inference_steps": 28, "guidance_scale": 3.5},
+            with_logs=True,
+        )
+        image_url = key["images"][0]["url"]
+        clips, voices = [], []
+        for i, (motion, dialogue, voice) in enumerate(SCENES):
+            print(f"Generating animated scene {i+1}/3...")
+            result = fal_client.subscribe(
+                "fal-ai/kling-video/v2.1/standard/image-to-video",
+                arguments={"prompt": CHARACTERS + " " + motion,
+                           "image_url": image_url, "duration": "5",
+                           "aspect_ratio": "9:16", "cfg_scale": 0.5},
+                with_logs=True,
+            )
+            clip = tmp / f"scene_{i}.mp4"
+            download(result["video"]["url"], clip)
+            clips.append(clip)
+            voice_path = tmp / f"voice_{i}.mp3"
+            try:
+                asyncio.run(make_voice(dialogue, voice, voice_path))
+            except Exception as e:
+                raise RuntimeError(f"Urdu voice generation failed for scene {i+1}: {e}")
+            voices.append(voice_path)
+
+        # Normalize all clips before concatenation.
+        normalized = []
+        for i, clip in enumerate(clips):
+            p = tmp / f"norm_{i}.mp4"
+            run([FFMPEG, "-y", "-i", str(clip), "-vf",
+                 "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24",
+                 "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                 str(p)])
+            normalized.append(p)
+        concat_file = tmp / "concat.txt"
+        concat_file.write_text("".join(f"file '{p.as_posix()}'\n" for p in normalized))
+        silent_video = tmp / "video.mp4"
+        run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file),
+             "-c", "copy", str(silent_video)])
+
+        # Put each Urdu voice line at the beginning of its corresponding 5-second scene.
+        voice_inputs = []
+        for i, voice in enumerate(voices):
+            delayed = tmp / f"delayed_{i}.wav"
+            run([FFMPEG, "-y", "-i", str(voice), "-af", f"adelay={i*5000}|{i*5000}",
+                 "-ac", "2", "-ar", "44100", str(delayed)])
+            voice_inputs.append(delayed)
+        cmd = [FFMPEG, "-y", "-i", str(silent_video)]
+        for p in voice_inputs:
+            cmd += ["-i", str(p)]
+        mix = f"amix=inputs={len(voice_inputs)}:duration=longest:dropout_transition=0,volume=1.6"
+        cmd += ["-filter_complex", mix, "-map", "0:v:0", "-map", "0:a:0?"]
+        # Rebuild mapping explicitly: voice inputs are 1..N.
+        cmd = [FFMPEG, "-y", "-i", str(silent_video)]
+        for p in voice_inputs:
+            cmd += ["-i", str(p)]
+        labels = "".join(f"[{i+1}:a]" for i in range(len(voice_inputs)))
+        filtergraph = labels + f"amix=inputs={len(voice_inputs)}:duration=longest:dropout_transition=0,volume=1.4[aout]"
+        cmd += ["-filter_complex", filtergraph, "-map", "0:v:0", "-map", "[aout]",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(OUT)]
+        run(cmd)
+
+    print(f"AI anime demo created: {OUT}")
+    print("Includes: generated anime keyframe, 3 AI motion scenes, Urdu character dialogue voice.")
+    print("Publishing integrations: disabled.")
 
 if __name__ == "__main__":
     main()
