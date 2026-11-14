@@ -1,4 +1,4 @@
-name: Original Animated Drama Demo
+name: AI Anime Drama Demo
 
 on:
   workflow_dispatch:
@@ -7,9 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  render-demo:
+  render-ai-anime:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,18 +19,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install demo-only dependencies
+      - name: Install FFmpeg and AI demo dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install Pillow imageio-ffmpeg
+          python -m pip install fal-client requests edge-tts
 
-      - name: Render original animated demo
+      - name: Generate AI anime scenes and Urdu voices
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
         run: python demo/animated_drama_demo.py
 
-      - name: Upload demo video artifact
+      - name: Upload AI anime demo
         uses: actions/upload-artifact@v4
         with:
-          name: original-animated-drama-demo
-          path: demo_output/animated_drama_demo.mp4
+          name: ai-anime-drama-demo
+          path: demo_output/ai_anime_demo.mp4
           if-no-files-found: error
           retention-days: 7
