@@ -1,4 +1,5 @@
 """Three-style professional short-video editor for user-owned or licensed footage."""
+import os
 import math
 import subprocess
 import tempfile
