@@ -28,7 +28,7 @@ jobs:
 
       - name: Generate realistic drama scenes and Urdu voices
         env:
-          MAGIC_HOUR_API_KEY: \${{ secrets.MAGIC_HOUR_API_KEY }}
+          MAGIC_HOUR_API_KEY: ${{ secrets.MAGIC_HOUR_API_KEY }}
           MAGIC_HOUR_VIDEO_MODEL: ltx-2.5
           MAGIC_HOUR_RESOLUTION: 480p
         run: python demo/animated_drama_demo.py
