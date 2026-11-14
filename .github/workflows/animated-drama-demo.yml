@@ -1,4 +1,4 @@
-name: AI Anime Drama Demo
+name: AI Realistic Drama Demo
 
 on:
   workflow_dispatch:
@@ -7,9 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  render-ai-anime:
+  render-realistic-drama:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,22 +19,24 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg and AI demo dependencies
+      - name: Install FFmpeg and Magic Hour dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install fal-client requests edge-tts
+          python -m pip install magic_hour requests edge-tts
 
-      - name: Generate AI anime scenes and Urdu voices
+      - name: Generate realistic drama scenes and Urdu voices
         env:
-          FAL_KEY: ${{ secrets.FAL_KEY }}
+          MAGIC_HOUR_API_KEY: \${{ secrets.MAGIC_HOUR_API_KEY }}
+          MAGIC_HOUR_VIDEO_MODEL: ltx-2.5
+          MAGIC_HOUR_RESOLUTION: 480p
         run: python demo/animated_drama_demo.py
 
-      - name: Upload AI anime demo
+      - name: Upload realistic drama demo
         uses: actions/upload-artifact@v4
         with:
-          name: ai-anime-drama-demo
-          path: demo_output/ai_anime_demo.mp4
+          name: magic-hour-realistic-drama-demo
+          path: demo_output/ai_realistic_drama_demo.mp4
           if-no-files-found: error
           retention-days: 7
