@@ -106,19 +106,31 @@ def main():
         voices = []
 
         for index, (prompt, dialogue, voice) in enumerate(SCENES):
-            print(f"Submitting Magic Hour realistic scene {index + 1}/3...")
-            response = client.v1.text_to_video.generate(
-                end_seconds=DURATION_SECONDS,
-                style={"prompt": prompt},
-                aspect_ratio="9:16",
-                audio=False,
-                model=MODEL,
-                name=f"Drama-shorts realistic scene {index + 1}",
-                resolution=RESOLUTION,
-                wait_for_completion=True,
-                download_outputs=True,
-                download_directory=str(tmp),
-            )
+            print(f"Submitting Magic Hour realistic scene {index + 1}/{len(SCENES)}...")
+            try:
+                response = client.v1.text_to_video.generate(
+                    end_seconds=DURATION_SECONDS,
+                    style={"prompt": prompt},
+                    aspect_ratio="9:16",
+                    audio=False,
+                    model=MODEL,
+                    name=f"Drama-shorts realistic scene {index + 1}",
+                    resolution=RESOLUTION,
+                    wait_for_completion=True,
+                    download_outputs=True,
+                    download_directory=str(tmp),
+                )
+            except Exception as exc:
+                error_text = str(exc).lower()
+                status_code = getattr(exc, "status_code", None)
+                if status_code == 402 or "insufficient_credits" in error_text:
+                    print(
+                        "Magic Hour has insufficient credits for the next scene. "
+                        "Keeping the scenes already generated and building a "
+                        "shorter demo instead of failing the whole workflow."
+                    )
+                    break
+                raise
 
             source_video = get_downloaded_video(response)
             clip = tmp / f"scene_{index}.mp4"
@@ -129,6 +141,12 @@ def main():
             voice_path = tmp / f"voice_{index}.mp3"
             asyncio.run(make_voice(dialogue, voice, voice_path))
             voices.append(voice_path)
+
+        if not clips:
+            raise RuntimeError(
+                "No scenes were generated. Check the Magic Hour credit balance "
+                "and generation settings, then rerun the demo."
+            )
 
         normalized = []
         for index, clip in enumerate(clips):
@@ -181,13 +199,15 @@ def main():
             "-filter_complex", filter_graph,
             "-map", "0:v:0", "-map", "[aout]",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-t", str(len(SCENES) * DURATION_SECONDS),
+            "-t", str(len(clips) * DURATION_SECONDS),
             str(OUT),
         ])
         run(command)
 
     print(f"Magic Hour realistic drama demo created: {OUT}")
-    print("Includes: 3 AI-generated live-action scenes and Urdu dialogue voices.")
+    print(f"Includes: {len(clips)} AI-generated live-action scene(s) with matching Urdu dialogue voices.")
+    if len(clips) < len(SCENES):
+        print("Note: This is a partial demo because Magic Hour credits were insufficient.")
     print("Publishing integrations: disabled.")
 
 
