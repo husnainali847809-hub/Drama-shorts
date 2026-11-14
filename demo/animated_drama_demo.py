@@ -25,8 +25,9 @@ if not API_KEY:
 FFMPEG = "ffmpeg"
 MODEL = os.environ.get("MAGIC_HOUR_VIDEO_MODEL", "ltx-2.5")
 RESOLUTION = os.environ.get("MAGIC_HOUR_RESOLUTION", "480p")
-DURATION_SECONDS = 2.0
-MAX_SCENES_PER_RUN = 1  # 2 seconds at 480p is estimated at 48 credits.
+DURATION_SECONDS = 2.0  # Keep the AI generation within the remaining-credit budget.
+TARGET_OUTPUT_SECONDS = 6.0  # Extend locally; this does not request another AI scene.
+MAX_SCENES_PER_RUN = 1
 
 CHARACTERS = (
     "Photorealistic live-action Pakistani drama, two fictional adult Pakistani actors. "
@@ -156,7 +157,7 @@ def main():
                 FFMPEG, "-y", "-i", str(clip),
                 "-vf",
                 "scale=720:1280:force_original_aspect_ratio=increase,"
-                "crop=720:1280,fps=24,setsar=1",
+                "crop=720:1280,setpts=2*PTS,fps=24, tpad=stop_mode=clone:stop_duration=2,setsar=1",
                 "-an", "-c:v", "libx264", "-preset", "veryfast",
                 "-pix_fmt", "yuv420p", str(normalized_clip),
             ])
@@ -194,13 +195,13 @@ def main():
         filter_graph = (
             voice_labels
             + f"amix=inputs={len(voice_inputs)}:duration=longest:"
-              "dropout_transition=0,volume=1.25[aout]"
+              "dropout_transition=0,volume=1.25,apad=pad_dur=6[aout]"
         )
         command.extend([
             "-filter_complex", filter_graph,
             "-map", "0:v:0", "-map", "[aout]",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-t", str(len(clips) * DURATION_SECONDS),
+            "-t", str(TARGET_OUTPUT_SECONDS),
             str(OUT),
         ])
         run(command)
