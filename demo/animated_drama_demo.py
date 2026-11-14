@@ -1,126 +1,195 @@
 #!/usr/bin/env python3
-"""AI anime pilot: Fal image generation + Kling image-to-video + Urdu TTS.
-Standalone demo only. Does not read drama footage or publish to any platform.
+"""Magic Hour realistic drama pilot + Urdu TTS.
+Standalone demo only. Does not read copyrighted drama footage or publish anywhere.
+A manual workflow run sends billable generation requests to Magic Hour.
 """
-import asyncio, os, subprocess, tempfile, requests
+import asyncio
+import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
-import fal_client
 
-OUT = Path("demo_output/ai_anime_demo.mp4")
+from magic_hour import Client
+
+OUT = Path("demo_output/ai_realistic_drama_demo.mp4")
 OUT.parent.mkdir(parents=True, exist_ok=True)
-FAL_KEY = os.environ.get("FAL_KEY")
-if not FAL_KEY:
-    raise SystemExit("Missing FAL_KEY GitHub Actions secret. Add a Fal.ai API key to run AI video generation.")
 
-os.environ["FAL_KEY"] = FAL_KEY
+API_KEY = os.environ.get("MAGIC_HOUR_API_KEY")
+if not API_KEY:
+    raise SystemExit(
+        "Missing MAGIC_HOUR_API_KEY GitHub Actions secret. "
+        "Add the Magic Hour key in repository Actions secrets."
+    )
+
 FFMPEG = "ffmpeg"
+MODEL = os.environ.get("MAGIC_HOUR_VIDEO_MODEL", "ltx-2.5")
+RESOLUTION = os.environ.get("MAGIC_HOUR_RESOLUTION", "480p")
+DURATION_SECONDS = 5.0
 
 CHARACTERS = (
-    "Two consistent fictional adult Pakistani anime characters, both clearly adults, "
-    "Ayesha age 24 with long dark hair and teal shalwar kameez, Hamza age 26 with short "
-    "dark hair and navy kurta. High-end 2D anime film illustration, expressive readable "
-    "faces, detailed cinematic living room at night, warm practical lighting, vertical "
-    "9:16 composition, polished professional anime art, no text, no watermark."
+    "Photorealistic live-action Pakistani drama, two fictional adult Pakistani actors. "
+    "Ayesha is a 24-year-old woman wearing an elegant teal shalwar kameez, with long "
+    "dark hair. Hamza is a 26-year-old man wearing a navy kurta, with short dark hair. "
+    "Natural human facial features, realistic skin texture, believable expressions, "
+    "cinematic practical lighting, grounded acting, shallow depth of field, "
+    "professional television drama cinematography. Vertical 9:16 framing. "
+    "Keep both characters' clothing and appearance consistent. No subtitles, no text, "
+    "no logos, no watermark."
 )
+
 SCENES = [
-    ("Ayesha turns toward Hamza, raises one hand with a worried expression, her hair and "
-     "clothes move naturally, subtle camera push-in, expressive anime acting.",
-     "عائشہ: تم نے مجھ سے سچ کیوں چھپایا؟", "ur-PK-UzmaNeural"),
-    ("Hamza looks down, then slowly looks up and gestures with an open hand, regretful "
-     "expression, natural body movement, subtle camera movement.",
-     "حمزہ: میں تمہیں پریشان نہیں کرنا چاہتا تھا۔", "ur-PK-AsadNeural"),
-    ("Ayesha takes a small step back, then both characters look at each other in silence, "
-     "emotional facial expressions, cinematic camera pull-back, natural movement.",
-     "عائشہ: لیکن سچ جاننا میرا حق تھا۔", "ur-PK-UzmaNeural"),
+    (
+        CHARACTERS
+        + " Medium two-shot in a modern Pakistani living room at night. Ayesha turns "
+        "toward Hamza with a worried, serious expression and asks him a difficult "
+        "question. She makes a small natural hand gesture. Subtle slow camera push-in.",
+        "عائشہ: تم نے مجھ سے سچ کیوں چھپایا؟",
+        "ur-PK-UzmaNeural",
+    ),
+    (
+        CHARACTERS
+        + " Same living room, same two characters and same clothing. Medium close-up "
+        "of Hamza. He looks down briefly, then looks toward Ayesha with a regretful "
+        "expression and replies calmly. Natural eye movement and restrained acting. "
+        "Slow cinematic camera movement.",
+        "حمزہ: میں تمہیں پریشان نہیں کرنا چاہتا تھا۔",
+        "ur-PK-AsadNeural",
+    ),
+    (
+        CHARACTERS
+        + " Same living room, same two characters and same clothing. Ayesha takes one "
+        "small step back, visibly disappointed but composed. Hamza remains still. "
+        "They look at each other in a tense quiet moment. Camera slowly pulls back.",
+        "عائشہ: لیکن سچ جاننا میرا حق تھا۔",
+        "ur-PK-UzmaNeural",
+    ),
 ]
+
 
 def run(args):
     subprocess.run(args, check=True)
 
-def download(url, path):
-    r = requests.get(url, timeout=180)
-    r.raise_for_status()
-    Path(path).write_bytes(r.content)
 
 async def make_voice(text, voice, path):
     proc = await asyncio.create_subprocess_exec(
-        "edge-tts", "--voice", voice, "--text", text, "--write-media", str(path),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        "edge-tts",
+        "--voice", voice,
+        "--text", text,
+        "--write-media", str(path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
     _, err = await proc.communicate()
     if proc.returncode:
         raise RuntimeError(err.decode("utf-8", "replace"))
 
+
+def get_downloaded_video(response):
+    paths = getattr(response, "downloaded_paths", None)
+    if paths:
+        candidate = Path(str(paths[0]))
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError(
+        "Magic Hour returned successfully but the SDK did not provide a local "
+        "downloaded video path. Check the project in Magic Hour and inspect SDK output."
+    )
+
+
 def main():
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        print("Generating original anime keyframe...")
-        key = fal_client.subscribe(
-            "fal-ai/flux/dev",
-            arguments={"prompt": CHARACTERS, "image_size": "portrait_16_9",
-                       "num_inference_steps": 28, "guidance_scale": 3.5},
-            with_logs=True,
-        )
-        image_url = key["images"][0]["url"]
-        clips, voices = [], []
-        for i, (motion, dialogue, voice) in enumerate(SCENES):
-            print(f"Generating animated scene {i+1}/3...")
-            result = fal_client.subscribe(
-                "fal-ai/kling-video/v2.1/standard/image-to-video",
-                arguments={"prompt": CHARACTERS + " " + motion,
-                           "image_url": image_url, "duration": "5",
-                           "aspect_ratio": "9:16", "cfg_scale": 0.5},
-                with_logs=True,
+    client = Client(token=API_KEY)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        tmp = Path(temp_dir)
+        clips = []
+        voices = []
+
+        for index, (prompt, dialogue, voice) in enumerate(SCENES):
+            print(f"Submitting Magic Hour realistic scene {index + 1}/3...")
+            response = client.v1.text_to_video.generate(
+                end_seconds=DURATION_SECONDS,
+                style={"prompt": prompt},
+                aspect_ratio="9:16",
+                audio=False,
+                model=MODEL,
+                name=f"Drama-shorts realistic scene {index + 1}",
+                resolution=RESOLUTION,
+                wait_for_completion=True,
+                download_outputs=True,
+                download_directory=str(tmp),
             )
-            clip = tmp / f"scene_{i}.mp4"
-            download(result["video"]["url"], clip)
+
+            source_video = get_downloaded_video(response)
+            clip = tmp / f"scene_{index}.mp4"
+            shutil.copy2(source_video, clip)
             clips.append(clip)
-            voice_path = tmp / f"voice_{i}.mp3"
-            try:
-                asyncio.run(make_voice(dialogue, voice, voice_path))
-            except Exception as e:
-                raise RuntimeError(f"Urdu voice generation failed for scene {i+1}: {e}")
+            print(f"Scene {index + 1} completed. Project ID: {getattr(response, 'id', 'not returned')}")
+
+            voice_path = tmp / f"voice_{index}.mp3"
+            asyncio.run(make_voice(dialogue, voice, voice_path))
             voices.append(voice_path)
 
-        # Normalize all clips before concatenation.
         normalized = []
-        for i, clip in enumerate(clips):
-            p = tmp / f"norm_{i}.mp4"
-            run([FFMPEG, "-y", "-i", str(clip), "-vf",
-                 "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24",
-                 "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                 str(p)])
-            normalized.append(p)
+        for index, clip in enumerate(clips):
+            normalized_clip = tmp / f"normalized_{index}.mp4"
+            run([
+                FFMPEG, "-y", "-i", str(clip),
+                "-vf",
+                "scale=720:1280:force_original_aspect_ratio=increase,"
+                "crop=720:1280,fps=24,setsar=1",
+                "-an", "-c:v", "libx264", "-preset", "veryfast",
+                "-pix_fmt", "yuv420p", str(normalized_clip),
+            ])
+            normalized.append(normalized_clip)
+
         concat_file = tmp / "concat.txt"
-        concat_file.write_text("".join(f"file '{p.as_posix()}'\n" for p in normalized))
-        silent_video = tmp / "video.mp4"
-        run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file),
-             "-c", "copy", str(silent_video)])
+        concat_file.write_text(
+            "".join(f"file '{clip.as_posix()}'\n" for clip in normalized),
+            encoding="utf-8",
+        )
+        silent_video = tmp / "silent_video.mp4"
+        run([
+            FFMPEG, "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file), "-c", "copy", str(silent_video),
+        ])
 
-        # Put each Urdu voice line at the beginning of its corresponding 5-second scene.
         voice_inputs = []
-        for i, voice in enumerate(voices):
-            delayed = tmp / f"delayed_{i}.wav"
-            run([FFMPEG, "-y", "-i", str(voice), "-af", f"adelay={i*5000}|{i*5000}",
-                 "-ac", "2", "-ar", "44100", str(delayed)])
+        for index, voice_path in enumerate(voices):
+            delayed = tmp / f"delayed_{index}.wav"
+            delay_ms = index * int(DURATION_SECONDS * 1000)
+            run([
+                FFMPEG, "-y", "-i", str(voice_path),
+                "-af", f"adelay={delay_ms}|{delay_ms}",
+                "-ac", "2", "-ar", "44100", str(delayed),
+            ])
             voice_inputs.append(delayed)
-        cmd = [FFMPEG, "-y", "-i", str(silent_video)]
-        for p in voice_inputs:
-            cmd += ["-i", str(p)]
-        mix = f"amix=inputs={len(voice_inputs)}:duration=longest:dropout_transition=0,volume=1.6"
-        cmd += ["-filter_complex", mix, "-map", "0:v:0", "-map", "0:a:0?"]
-        # Rebuild mapping explicitly: voice inputs are 1..N.
-        cmd = [FFMPEG, "-y", "-i", str(silent_video)]
-        for p in voice_inputs:
-            cmd += ["-i", str(p)]
-        labels = "".join(f"[{i+1}:a]" for i in range(len(voice_inputs)))
-        filtergraph = labels + f"amix=inputs={len(voice_inputs)}:duration=longest:dropout_transition=0,volume=1.4[aout]"
-        cmd += ["-filter_complex", filtergraph, "-map", "0:v:0", "-map", "[aout]",
-                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(OUT)]
-        run(cmd)
 
-    print(f"AI anime demo created: {OUT}")
-    print("Includes: generated anime keyframe, 3 AI motion scenes, Urdu character dialogue voice.")
+        command = [FFMPEG, "-y", "-i", str(silent_video)]
+        for voice_path in voice_inputs:
+            command.extend(["-i", str(voice_path)])
+
+        voice_labels = "".join(
+            f"[{index + 1}:a]" for index in range(len(voice_inputs))
+        )
+        filter_graph = (
+            voice_labels
+            + f"amix=inputs={len(voice_inputs)}:duration=longest:"
+              "dropout_transition=0,volume=1.25[aout]"
+        )
+        command.extend([
+            "-filter_complex", filter_graph,
+            "-map", "0:v:0", "-map", "[aout]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-t", str(len(SCENES) * DURATION_SECONDS),
+            str(OUT),
+        ])
+        run(command)
+
+    print(f"Magic Hour realistic drama demo created: {OUT}")
+    print("Includes: 3 AI-generated live-action scenes and Urdu dialogue voices.")
     print("Publishing integrations: disabled.")
+
 
 if __name__ == "__main__":
     main()
