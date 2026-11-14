@@ -25,7 +25,8 @@ if not API_KEY:
 FFMPEG = "ffmpeg"
 MODEL = os.environ.get("MAGIC_HOUR_VIDEO_MODEL", "ltx-2.5")
 RESOLUTION = os.environ.get("MAGIC_HOUR_RESOLUTION", "480p")
-DURATION_SECONDS = 5.0
+DURATION_SECONDS = 2.0
+MAX_SCENES_PER_RUN = 1  # 2 seconds at 480p is estimated at 48 credits.
 
 CHARACTERS = (
     "Photorealistic live-action Pakistani drama, two fictional adult Pakistani actors. "
@@ -44,7 +45,7 @@ SCENES = [
         + " Medium two-shot in a modern Pakistani living room at night. Ayesha turns "
         "toward Hamza with a worried, serious expression and asks him a difficult "
         "question. She makes a small natural hand gesture. Subtle slow camera push-in.",
-        "عائشہ: تم نے مجھ سے سچ کیوں چھپایا؟",
+        "عائشہ: سچ بتاؤ، کیا ہوا؟",
         "ur-PK-UzmaNeural",
     ),
     (
@@ -105,8 +106,8 @@ def main():
         clips = []
         voices = []
 
-        for index, (prompt, dialogue, voice) in enumerate(SCENES):
-            print(f"Submitting Magic Hour realistic scene {index + 1}/{len(SCENES)}...")
+        for index, (prompt, dialogue, voice) in enumerate(SCENES[:MAX_SCENES_PER_RUN]):
+            print(f"Submitting Magic Hour realistic scene {index + 1}/{MAX_SCENES_PER_RUN}...")
             try:
                 response = client.v1.text_to_video.generate(
                     end_seconds=DURATION_SECONDS,
@@ -205,8 +206,8 @@ def main():
         run(command)
 
     print(f"Magic Hour realistic drama demo created: {OUT}")
-    print(f"Includes: {len(clips)} AI-generated live-action scene(s) with matching Urdu dialogue voices.")
-    if len(clips) < len(SCENES):
+    print(f"Includes: {len(clips)} AI-generated live-action scene(s) with matching Urdu dialogue voices. ")
+    if len(clips) < min(len(SCENES), MAX_SCENES_PER_RUN):
         print("Note: This is a partial demo because Magic Hour credits were insufficient.")
     print("Publishing integrations: disabled.")
 
