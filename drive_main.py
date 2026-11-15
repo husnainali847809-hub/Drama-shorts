@@ -73,10 +73,11 @@ class NoUnusedSceneWindows(RuntimeError):
     """Raised when this episode has no remaining distinct candidate windows."""
 
 
+# Only these two Google Drive drama folders are eligible for new Shorts.
+# Dar-e-Nijaat is intentionally excluded and will never be selected.
 DRAMA_NAMES = {
     "hurmat": ("hurmat",),
-    "dar-e-nijaat": ("dar e nijat", "dar e nijaat", "dar-e-nijaat", "dar-e-nijaat"),
-    "mitti-da-daway": ("mitti da daway", "mitti da dava", "mitti da dawa", "mitti da daway"),
+    "mitti-da-daway": ("mitti da daway", "mitti da dava", "mitti da dawa"),
 }
 
 
@@ -135,10 +136,10 @@ def newest_unprocessed_video(token, history):
     if not candidates:
         unknown = [item.get("name", "") for item in files if item.get("id") not in processed]
         if unknown:
-            log("Skipped videos not matching the three configured drama names: " + ", ".join(unknown[:8]))
+            log("Skipped videos not matching the two enabled drama names (Hurmat, Mitti Da Daway): " + ", ".join(unknown[:8]))
         return None
 
-    # Strict round-robin: Hurmat -> Dar-e-Nijaat -> Mitti Da Daway -> repeat.
+    # Strict round-robin: Hurmat -> Mitti Da Daway -> repeat.
     order = list(DRAMA_NAMES)
     last = history.get("drama_last", "")
     next_index = (order.index(last) + 1) % len(order) if last in order else 0
