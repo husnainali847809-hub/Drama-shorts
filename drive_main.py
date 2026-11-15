@@ -139,7 +139,34 @@ def newest_unprocessed_video(token, history):
             log("Skipped videos not matching the two enabled drama names (Hurmat, Mitti Da Daway): " + ", ".join(unknown[:8]))
         return None
 
-    # Strict round-robin: Hurmat -> Mitti Da Daway -> repeat.
+    # Scheduled runs set DRAMA_REQUIRED_KEY so each time slot uses its
+    # assigned drama: Hurmat, Mitti Da Daway, Hurmat, Mitti Da Daway.
+    # Manual workflow runs keep the round-robin fallback.
+    required_drama = os.getenv("DRAMA_REQUIRED_KEY", "").strip().lower()
+    if required_drama:
+        if required_drama not in DRAMA_NAMES:
+            raise RuntimeError(
+                f"Invalid DRAMA_REQUIRED_KEY '{required_drama}'. "
+                f"Expected one of: {', '.join(DRAMA_NAMES)}."
+            )
+        matching = [item for item in candidates if _drama_key(item) == required_drama]
+        if not matching:
+            log(
+                f"No unused video is currently available for required drama "
+                f"'{required_drama}'. Skipping this slot rather than posting "
+                "the other drama."
+            )
+            return None
+        matching.sort(key=lambda item: item.get("modifiedTime", ""), reverse=True)
+        chosen = matching[0]
+        chosen["_drama_key"] = required_drama
+        log(
+            f"Scheduled slot strictly selected '{required_drama}' "
+            f"from {len(matching)} unseen episode(s)."
+        )
+        return chosen
+
+    # Manual run: round-robin Hurmat -> Mitti Da Daway.
     order = list(DRAMA_NAMES)
     last = history.get("drama_last", "")
     next_index = (order.index(last) + 1) % len(order) if last in order else 0
