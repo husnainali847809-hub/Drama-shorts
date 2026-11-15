@@ -452,8 +452,10 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
         # Music begins with the reel; the weak song intro is skipped by the
         # strongest-section detector in make_music_layer().
         music_start = 0.0
-        music_volume = float(os.getenv("DRAMA_MUSIC_VOLUME", "0.38"))
-        music_volume = max(0.20, min(0.48, music_volume))
+        # Make the background track clearly audible on phone speakers while
+        # keeping original drama dialogue in front.
+        music_volume = float(os.getenv("DRAMA_MUSIC_VOLUME", "0.62"))
+        music_volume = max(0.45, min(0.72, music_volume))
         music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
         audio_layers.append(music)
         if not music_meta.get("generated"):
@@ -480,7 +482,13 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             threads=2,
             logger=None,
         )
-        log(f"Rendered 1080x1920 video using '{style}' editing; background music volume={music_volume:.2f}.")
+        if rendered.audio is None:
+            raise RuntimeError("Final render has no audio stream; refusing to publish a silent video.")
+        log(
+            f"Rendered 1080x1920 video using '{style}' editing; "
+            f"background music='{music_path.name}', music volume={music_volume:.2f}; "
+            "music layer mixed with original drama audio."
+        )
         return music_meta
     finally:
         if rendered is not None and rendered is not vertical:
