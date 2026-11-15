@@ -608,8 +608,14 @@ def main():
             if audio_suffix not in {".mp3", ".wav", ".m4a", ".aac"}:
                 continue
             try:
+                # Keep the real song filename so the mood matcher can read
+                # labels such as romantic, emotional, sad, suspense or action.
+                safe_stem = re.sub(
+                    r"[^A-Za-z0-9._ -]+", "_", Path(audio_name).stem
+                ).strip(" ._-")[:100] or "drive_music"
+                staged_name = f"{safe_stem}__{audio_item['id'][:8]}{audio_suffix}"
                 download_drive_file(
-                    token, audio_item, music_dir / f"{audio_item['id']}{audio_suffix}"
+                    token, audio_item, music_dir / staged_name
                 )
             except Exception as audio_error:
                 log(f"Skipping unavailable music file '{audio_name}': {audio_error}")
