@@ -614,10 +614,13 @@ def main():
     history = pipeline.read_history()
     item = newest_unprocessed_video(token, history)
     if not item:
-        raise RuntimeError(
-            "No new video found in the configured Google Drive folder. "
-            "Upload a supported video file into that folder and check DRIVE_FOLDER_ID."
+        log(
+            "SLOT SKIPPED: No unused video matched this scheduled drama in the "
+            "configured Google Drive folder. No other drama will be substituted. "
+            "Add a new supported video to the correct drama folder, then the next "
+            "scheduled run can process it."
         )
+        return
 
     log(f"Found new Drive video: {item.get('name', item['id'])} (drama={item.get('_drama_key')}).")
     pipeline.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
