@@ -77,7 +77,7 @@ class NoUnusedSceneWindows(RuntimeError):
 # Dar-e-Nijaat is intentionally excluded and will never be selected.
 DRAMA_NAMES = {
     "hurmat": ("hurmat",),
-    "mitti-da-daway": ("mitti da daway", "mitti da dava", "mitti da dawa"),
+    "mitti-da-daway": ("mitti de baway", "mitti de bawey", "mitti da baway", "mitti da bawey", "mitti da daway", "mitti da dava", "mitti da dawa"),
 }
 
 
