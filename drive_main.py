@@ -626,26 +626,7 @@ def main():
         suffix = Path(safe_name).suffix.lower() or ".mp4"
         source_path = Path(work_dir) / ("drive_source_video" + suffix)
         download_video(token, item, source_path)
-        music_dir = Path(work_dir) / "drive_music"
-        music_dir.mkdir(parents=True, exist_ok=True)
-        audio_files = list_folder_audio(token, required_env("DRIVE_FOLDER_ID"))
-        for audio_item in audio_files:
-            audio_name = Path(audio_item.get("name") or audio_item["id"]).name
-            audio_suffix = Path(audio_name).suffix.lower()
-            if audio_suffix not in {".mp3", ".wav", ".m4a", ".aac"}:
-                continue
-            try:
-                # Keep the real song filename so the mood matcher can read
-                # labels such as romantic, emotional, sad, suspense or action.
-                safe_stem = re.sub(
-                    r"[^A-Za-z0-9._ -]+", "_", Path(audio_name).stem
-                ).strip(" ._-")[:100] or "drive_music"
-                staged_name = f"{safe_stem}__{audio_item['id'][:8]}{audio_suffix}"
-                download_drive_file(
-                    token, audio_item, music_dir / staged_name
-                )
-            except Exception as audio_error:
-                log(f"Skipping unavailable music file '{audio_name}': {audio_error}")
+        # Background music is disabled: preserve only the original drama soundtrack.
         prior_starts = history.get("video_clips", {}).get(item["id"], [])
         try:
             start, category, reason, scene_summary = classify_local_video(
@@ -668,7 +649,7 @@ def main():
         log(f"Facebook Reel duration safety cap applied: {clip_seconds}s (maximum 90s).")
         music_meta = pipeline.render_clip(
             source_path, start, category, output_path,
-            clip_seconds=clip_seconds, music_dir=music_dir
+            clip_seconds=clip_seconds, music_dir=None
         )
         public_url = pipeline.upload_cloudinary(output_path)
         from publisher.buffer import queue_facebook_reel
@@ -683,7 +664,7 @@ def main():
         log(
             f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
             f"file={item.get('name')}; duration={clip_seconds}s; music="
-            f"{music_meta.get('title') or 'original instrumental'}"
+            f"{music_meta.get('title') or 'original drama audio only'}"
         )
     if output_path.exists():
         output_path.unlink()
