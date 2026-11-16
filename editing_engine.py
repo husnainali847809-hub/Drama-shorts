@@ -428,47 +428,11 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             # A subtle opening/closing fade avoids abrupt starts without hiding dialogue.
             vertical = vertical.with_effects([vfx.FadeIn(0.25), vfx.FadeOut(0.35)])
 
-        music_path = find_music(category, extra_music_dirs=[music_dir] if music_dir else None)
-        if music_path is None:
-            generated_music_dir = tempfile.TemporaryDirectory(prefix="drama-original-music-")
-            music_path = generate_original_music(
-                category,
-                vertical.duration,
-                Path(generated_music_dir.name) / f"{category}_original_instrumental.wav",
-            )
-            log(f"No matching local track for '{category}'; generated an original mood-matched instrumental.")
-            music_meta = {
-                "title": f"Original {category} instrumental",
-                "style": style,
-                "generated": True,
-            }
-
-        audio_layers = []
-        if vertical.audio is not None:
-            audio_layers.append(vertical.audio.with_volume_scaled(1.0))
-
-        # Keep opening dialogue audible for dialogue-led scenes; use a quiet
-        # instrumental bed for every category rather than leaving music absent.
-        # Music begins with the reel; the weak song intro is skipped by the
-        # strongest-section detector in make_music_layer().
-        music_start = 0.0
-        # Make the background track clearly audible on phone speakers while
-        # keeping original drama dialogue in front.
-        music_volume = float(os.getenv("DRAMA_MUSIC_VOLUME", "0.62"))
-        music_volume = max(0.45, min(0.72, music_volume))
-        music = make_music_layer(music_path, vertical.duration, music_start, music_volume)
-        audio_layers.append(music)
-        if not music_meta.get("generated"):
-            music_meta = {
-                "title": music_path.stem,
-                "style": style,
-                "music_start_seconds": music_start,
-            }
-
+        # No added soundtrack or generated music. Keep the source drama audio unchanged.
+        if vertical.audio is None:
+            raise RuntimeError("Source drama clip has no original audio; refusing to publish a silent video.")
         rendered = vertical
-        if audio_layers:
-            mixed_audio = CompositeAudioClip(audio_layers)
-            rendered = vertical.with_audio(mixed_audio)
+        music_meta = {"title": "Original drama audio only", "style": style}
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         rendered.write_videofile(
@@ -486,8 +450,7 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
             raise RuntimeError("Final render has no audio stream; refusing to publish a silent video.")
         log(
             f"Rendered 1080x1920 video using '{style}' editing; "
-            f"background music='{music_path.name}', music volume={music_volume:.2f}; "
-            "music layer mixed with original drama audio."
+            "original drama audio preserved; no background music added."
         )
         return music_meta
     finally:
