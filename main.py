@@ -348,8 +348,73 @@ def discover_facebook_latest(page_url, seen_ids):
     return selected
 
 
+def discover_tiktok_latest(profile_url, seen_ids):
+    """Find the newest unseen public video from one authorized TikTok profile.
+
+    Uses yt-dlp's ordinary public extractor only. It does not use cookies,
+    login credentials, private endpoints, or access-control workarounds.
+    """
+    parsed = urlparse(profile_url)
+    match = re.search(r"/@([A-Za-z0-9._-]+)", parsed.path)
+    if not match:
+        raise RuntimeError(f"Invalid TikTok profile URL: {profile_url}")
+    username = match.group(1)
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "playlistend": 30,
+        "lazy_playlist": True,
+        "ignoreerrors": True,
+        "skip_download": True,
+        "socket_timeout": 30,
+        "extractor_retries": 2,
+        "noplaylist": False,
+    }
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(profile_url, download=False)
+    if not isinstance(info, dict):
+        raise RuntimeError(f"TikTok did not return public profile data for @{username}.")
+    entries = info.get("entries")
+    if entries is None:
+        entries = [info]
+
+    candidates = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        video_id = str(entry.get("id") or entry.get("display_id") or "").strip()
+        if not video_id or video_id in seen_ids:
+            continue
+        video_url = entry.get("webpage_url") or entry.get("original_url") or entry.get("url")
+        if not video_url or not str(video_url).startswith("http"):
+            if video_id.isdigit():
+                video_url = f"https://www.tiktok.com/@{username}/video/{video_id}"
+            else:
+                continue
+        timestamp = entry.get("timestamp")
+        upload_date = str(entry.get("upload_date") or "")
+        candidates.append((float(timestamp or 0), upload_date, {
+            "id": video_id,
+            "url": str(video_url),
+            "title": str(entry.get("title") or f"TikTok video from @{username}"),
+            "source_username": username,
+        }))
+
+    if not candidates:
+        log(f"No unseen publicly accessible TikTok videos found for @{username}.")
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    selected = candidates[0][2]
+    log(f"TikTok profile @{username}: found {len(candidates)} unseen public video(s); selected latest.")
+    return selected
+
+
 def discover_episode(source_url, seen_ids):
     lower_url = source_url.lower()
+    if "tiktok.com/@" in lower_url:
+        return discover_tiktok_latest(source_url, seen_ids)
+
     if "facebook.com/" in lower_url or "fb.watch/" in lower_url:
         return discover_facebook_latest(source_url, seen_ids)
 
