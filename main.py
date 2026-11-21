@@ -380,9 +380,11 @@ def discover_tiktok_candidates(profile_url, seen_ids):
     if not isinstance(info, dict):
         raise RuntimeError(f"TikTok returned no public profile data for @{username}.")
     entries = list(info.get("entries") or [info])
-    max_age_days = max(1, int(os.getenv("TIKTOK_MAX_AGE_DAYS", "30")))
+    # Default: include every unseen public upload, even older/low-view videos.
+    # Set TIKTOK_MAX_AGE_DAYS to a positive value only if a time window is desired.
+    max_age_days = max(0, int(os.getenv("TIKTOK_MAX_AGE_DAYS", "0")))
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=max_age_days)
+    cutoff = now - timedelta(days=max_age_days) if max_age_days else None
     candidates = []
     import math
     for entry in entries:
@@ -405,11 +407,11 @@ def discover_tiktok_candidates(profile_url, seen_ids):
                 timestamp = 0
         if timestamp:
             published = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
-            if published < cutoff:
+            if cutoff and published < cutoff:
                 continue
             age_hours = max(1.0, (now - published).total_seconds() / 3600.0)
         else:
-            age_hours = max_age_days * 24.0
+            age_hours = max(1, max_age_days) * 24.0
         views = max(0, int(entry.get("view_count") or 0))
         likes = max(0, int(entry.get("like_count") or 0))
         comments = max(0, int(entry.get("comment_count") or 0))
@@ -426,7 +428,7 @@ def discover_tiktok_candidates(profile_url, seen_ids):
             "trend_score": score,
         })
     candidates.sort(key=lambda x: (x["trend_score"], x["view_count"], x["timestamp"]), reverse=True)
-    log(f"TikTok @{username}: scanned {len(entries)} entries; {len(candidates)} unseen recent candidates.")
+    log(f"TikTok @{username}: scanned {len(entries)} entries; {len(candidates)} unseen candidates (age limit={'off' if not max_age_days else str(max_age_days) + ' days'}).")
     return candidates
 
 def discover_episode(source_url, seen_ids):
