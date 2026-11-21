@@ -635,16 +635,22 @@ def download_candidate_for_frame_check(video_url, work_dir):
         "file_access_retries": 3,
         "socket_timeout": 45,
     }
+    Path(work_dir).mkdir(parents=True, exist_ok=True)
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(video_url, download=True)
+        if not isinstance(info, dict):
+            raise RuntimeError("yt-dlp returned no video metadata.")
         candidates = []
         for item in (info.get("requested_downloads") or []):
-            if item.get("filepath"):
+            if isinstance(item, dict) and item.get("filepath"):
                 candidates.append(Path(item["filepath"]))
         if info.get("filepath"):
             candidates.append(Path(info["filepath"]))
-        candidates.append(Path(ydl.prepare_filename(info)))
-    # Post-processors may change the extension; locate the actual downloaded file.
+        try:
+            candidates.append(Path(ydl.prepare_filename(info)))
+        except Exception:
+            pass
+    # Search only this candidate's isolated directory; never reuse an older file.
     candidates.extend(Path(work_dir).glob("candidate_source.*"))
     local_path = next(
         (path for path in candidates if path.exists() and path.is_file() and path.stat().st_size >= 100_000),
@@ -659,75 +665,85 @@ def download_candidate_for_frame_check(video_url, work_dir):
     return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
 
 def extract_stream_frame(stream, second, destination, video_url=None):
-    """
-    Extract one frame. If a signed media URL has expired or the CDN rejects it,
-    resolve a fresh public stream URL and retry; never reuse the stale URL.
-    """
+    """Extract a frame with FFmpeg first and an independent OpenCV fallback."""
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     last_error = "No frame returned"
+    local_input = stream.get("local_path")
 
     for attempt in range(3):
         command = [ffmpeg, "-hide_banner", "-loglevel", "error"]
-        local_input = stream.get("local_path")
         if local_input:
-            # Output-side seeking is slower but reliable across downloaded containers.
-            command.extend(["-i", local_input, "-ss", f"{max(0.0, float(second)):.3f}"])
+            # Input-side seeking avoids the invalid output-side seek ordering.
+            command.extend(["-ss", f"{max(0.0, float(second)):.3f}", "-i", local_input])
         else:
-            command.extend([
-                "-rw_timeout", "30000000",
-                "-ss", f"{max(0.0, float(second)):.3f}",
-            ])
+            command.extend(["-rw_timeout", "30000000", "-ss", f"{max(0.0, float(second)):.3f}"])
             header_text = ffmpeg_headers(stream.get("headers"))
             if header_text:
                 command.extend(["-headers", header_text])
             command.extend(["-i", stream["url"]])
-        # Use a simple, explicit JPEG output pipeline. The previous filter
-        # expression passed nested quotes to FFmpeg as literal argv content;
-        # on some runner builds this makes the MJPEG encoder fail with
-        # "Invalid argument" even though the source video downloaded correctly.
         command.extend([
-            "-frames:v", "1",
+            "-map", "0:v:0", "-frames:v", "1",
             "-vf", "scale=640:-2",
-            "-c:v", "mjpeg",
-            "-pix_fmt", "yuvj420p",
-            "-q:v", "3",
-            "-f", "image2",
-            "-y", str(destination),
+            "-c:v", "mjpeg", "-pix_fmt", "yuvj420p",
+            "-q:v", "3", "-f", "image2", "-y", str(destination),
         ])
-
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=100)
+            if result.returncode == 0 and Path(destination).is_file() and Path(destination).stat().st_size > 500:
+                from PIL import Image
+                with Image.open(destination) as check:
+                    check.verify()
+                return
+            last_error = (result.stderr or result.stdout or "FFmpeg returned no valid frame")[-500:]
         except subprocess.TimeoutExpired:
-            last_error = "FFmpeg timed out while reading the online stream."
-            result = None
+            last_error = "FFmpeg timed out while extracting a frame."
+        except Exception as exc:
+            last_error = str(exc)[:500]
 
-        if result is not None and result.returncode == 0 and Path(destination).exists() and Path(destination).stat().st_size > 0:
-            return
-
-        if result is not None:
-            last_error = (result.stderr or result.stdout or "No frame returned")[-500:]
-        # Refreshing a remote URL cannot repair a downloaded local file.
-        # Stop here so the caller receives the real local FFmpeg error.
         if local_input or attempt >= 2 or not video_url:
             break
-
-        log(f"Frame request failed (attempt {attempt + 1}); refreshing the stream URL.")
+        log(f"Remote frame extraction failed (attempt {attempt + 1}); refreshing source URL.")
         try:
-            refreshed = get_stream_source(video_url)
-            stream.clear()
-            stream.update(refreshed)
-        except Exception as refresh_error:
-            refresh_detail = str(refresh_error)
-            last_error = f"{last_error}; stream refresh failed: {refresh_detail[:200]}"
-            if "sign in to confirm" in refresh_detail.lower() or "confirm you're not a bot" in refresh_detail.lower() or "confirm you’re not a bot" in refresh_detail.lower():
-                log("YouTube requires account verification for this video; stopping retries for this source.")
+            stream.update(get_stream_source(video_url))
+        except Exception as exc:
+            last_error = f"{last_error}; refresh failed: {str(exc)[:180]}"
+            if any(term in str(exc).lower() for term in ("sign in to confirm", "confirm you're not a bot", "confirm you’re not a bot")):
                 break
 
-    safe_error = re.sub(r"https?://\S+", "<media-url>", last_error)
-    if stream.get("local_path"):
-        raise RuntimeError(f"FFmpeg could not extract a frame from the downloaded local video: {safe_error}")
-    raise RuntimeError(f"Could not read frame from online stream after refreshing: {safe_error}")
+    # OpenCV is installed by scenedetect[opencv] and uses a different decoder/output path.
+    local_input = stream.get("local_path")
+    if local_input and Path(local_input).is_file():
+        try:
+            import cv2
+            from PIL import Image
+            capture = cv2.VideoCapture(str(local_input))
+            try:
+                if not capture.isOpened():
+                    raise RuntimeError("OpenCV could not open the downloaded video.")
+                capture.set(cv2.CAP_PROP_POS_MSEC, max(0.0, float(second)) * 1000.0)
+                ok, frame = capture.read()
+                if not ok or frame is None:
+                    capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok, frame = capture.read()
+                if not ok or frame is None:
+                    raise RuntimeError("No decodable frame at requested timestamp or video start.")
+                height, width = frame.shape[:2]
+                if width > 640:
+                    frame = cv2.resize(frame, (640, max(2, int(round(height * 640 / width)))), interpolation=cv2.INTER_AREA)
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                Image.fromarray(rgb).save(str(destination), format="JPEG", quality=85)
+            finally:
+                capture.release()
+            with Image.open(destination) as check:
+                check.verify()
+            if Path(destination).is_file() and Path(destination).stat().st_size > 500:
+                log("Frame extracted successfully using OpenCV fallback.")
+                return
+        except Exception as exc:
+            last_error = f"{last_error}; OpenCV fallback failed: {str(exc)[:250]}"
 
+    safe_error = re.sub(r"https?://\\S+", "<media-url>", last_error)
+    raise RuntimeError(f"All frame extraction methods failed: {safe_error}")
 
 def candidate_starts(duration):
     duration = float(duration)
@@ -788,12 +804,17 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
                     raise RuntimeError(
                         f"Local video frame extraction failed ({stream.get('local_path')}): {str(local_error)[:500]}"
                     ) from local_error
-            with Image.open(frame_path) as image:
-                image = image.convert("RGB")
-                image.thumbnail((640, 640))
-                buffer = io.BytesIO()
-                image.save(buffer, format="JPEG", quality=78)
-                encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            try:
+                with Image.open(frame_path) as image:
+                    image = image.convert("RGB")
+                    image.thumbnail((640, 640))
+                    buffer = io.BytesIO()
+                    image.save(buffer, format="JPEG", quality=78)
+                    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            except Exception as image_error:
+                raise RuntimeError(f"Extracted frame is not a valid image: {image_error}") from image_error
+            if not encoded:
+                raise RuntimeError("Frame encoder returned an empty image.")
             frames.append((index, encoded))
 
     prompt = (
@@ -862,11 +883,20 @@ def fetch_selected_stream_clip(stream, start, destination):
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart", "-y", str(destination),
     ])
-    result = subprocess.run(command, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0 or not Path(destination).exists() or Path(destination).stat().st_size < 100_000:
-        detail = (result.stderr or result.stdout or "No clip returned")[-700:]
-        raise RuntimeError(f"Could not fetch selected segment from online stream: {detail}")
-    return Path(destination)
+    last_error = "No clip returned"
+    for attempt in range(2):
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+            if result.returncode == 0 and Path(destination).is_file() and Path(destination).stat().st_size >= 50_000:
+                return Path(destination)
+            last_error = (result.stderr or result.stdout or "FFmpeg produced no usable clip")[-700:]
+        except subprocess.TimeoutExpired:
+            last_error = "FFmpeg timed out while creating the selected clip."
+        except OSError as exc:
+            last_error = str(exc)
+        if attempt == 0:
+            log(f"Clip encoding failed; retrying once: {last_error[:180]}")
+    raise RuntimeError(f"Could not create selected local video segment: {last_error}")
 
 
 def reusable_music_track(category):
@@ -992,7 +1022,10 @@ def main():
                 # Match the Poetry workflow: download the selected public creator video
                 # locally first, allowing yt-dlp/FFmpeg to merge separate DASH tracks.
                 # Scene analysis and final clipping then read this stable local file.
-                downloaded = download_candidate_for_frame_check(found["url"], work_dir)
+                candidate_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(found.get("id") or candidate_index))[:70]
+                candidate_dir = Path(work_dir) / f"candidate_{candidate_index}_{candidate_id}"
+                candidate_dir.mkdir(parents=True, exist_ok=True)
+                downloaded = download_candidate_for_frame_check(found["url"], candidate_dir)
                 resolved_stream = {
                     "url": "",
                     "headers": {},
