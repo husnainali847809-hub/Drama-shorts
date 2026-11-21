@@ -718,6 +718,8 @@ def extract_stream_frame(stream, second, destination, video_url=None):
                 break
 
     safe_error = re.sub(r"https?://\S+", "<media-url>", last_error)
+    if stream.get("local_path"):
+        raise RuntimeError(f"FFmpeg could not extract a frame from the downloaded local video: {safe_error}")
     raise RuntimeError(f"Could not read frame from online stream after refreshing: {safe_error}")
 
 
