@@ -379,7 +379,7 @@ def discover_tiktok_candidates(profile_url, seen_ids):
         info = ydl.extract_info(profile_url, download=False)
     if not isinstance(info, dict):
         raise RuntimeError(f"TikTok returned no public profile data for @{username}.")
-    entries = info.get("entries") or [info]
+    entries = list(info.get("entries") or [info])
     max_age_days = max(1, int(os.getenv("TIKTOK_MAX_AGE_DAYS", "30")))
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=max_age_days)
