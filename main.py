@@ -621,7 +621,7 @@ def ffmpeg_headers(headers):
 
 
 def download_candidate_for_frame_check(video_url, work_dir):
-    """Download one authorized candidate locally, including separate DASH tracks."""
+    """Download one authorized candidate locally; no visual suitability analysis is performed."""
     output_template = str(Path(work_dir) / "candidate_source.%(ext)s")
     options = {
         "format": "bestvideo*+bestaudio/best",
@@ -661,7 +661,7 @@ def download_candidate_for_frame_check(video_url, work_dir):
     duration = float(info.get("duration") or 0)
     if duration <= 0:
         raise RuntimeError("Downloaded video has no readable positive duration.")
-    log(f"Downloaded candidate locally for frame analysis ({local_path.suffix}, {local_path.stat().st_size} bytes).")
+    log(f"Downloaded trending candidate ({local_path.suffix}, {local_path.stat().st_size} bytes).")
     return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
 
 def extract_stream_frame(stream, second, destination, video_url=None):
@@ -1056,10 +1056,14 @@ def main():
         for candidate_index, found in enumerate(ranked_candidates, start=1):
             source = found.get("source_url", "")
             try:
-                log(f"Trying trending candidate {candidate_index}/{len(ranked_candidates)}: {found.get('title')} from @{found.get('source_username', 'unknown')}; score={float(found.get('trend_score', 0)):.2f}.")
-                # Match the Poetry workflow: download the selected public creator video
-                # locally first, allowing yt-dlp/FFmpeg to merge separate DASH tracks.
-                # Scene analysis and final clipping then read this stable local file.
+                log(
+                    f"Trying trending candidate {candidate_index}/{len(ranked_candidates)}: "
+                    f"{found.get('title')} from @{found.get('source_username', 'unknown')}; "
+                    f"score={float(found.get('trend_score', 0)):.2f}."
+                )
+                # Trending score determines selection. Once the candidate downloads,
+                # accept it immediately: do not inspect frames, scenes, brightness,
+                # blur, black screens, or visual/content suitability.
                 candidate_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(found.get("id") or candidate_index))[:70]
                 candidate_dir = Path(work_dir) / f"candidate_{candidate_index}_{candidate_id}"
                 candidate_dir.mkdir(parents=True, exist_ok=True)
@@ -1071,18 +1075,23 @@ def main():
                     "title": downloaded["title"],
                     "local_path": downloaded["local_path"],
                 }
-                log("Downloaded authorized TikTok candidate locally; using the local file for scene analysis.")
-                starts = candidate_starts(resolved_stream["duration"])
-                log(f"Checking {len(starts)} scene windows.")
-                chosen_start, chosen_category, chosen_reason = classify_stream_candidates(
-                    resolved_stream, starts, work_dir, video_url=found["url"]
-                )
                 episode, stream, source_used = found, resolved_stream, source
-                selected_start, selected_category, selection_reason = chosen_start, chosen_category, chosen_reason
+                selected_start = 0.0
+                selected_category = "interesting"
+                selection_reason = (
+                    f"Accepted by trending rank only; score={float(found.get('trend_score', 0)):.2f}"
+                )
+                log(
+                    f"Accepted trending candidate {candidate_index}: download successful; "
+                    "visual/scene checks skipped."
+                )
                 break
             except Exception as exc:
                 source_errors.append(f"{found.get('url', source)}: {str(exc)[:300]}")
-                log(f"Candidate {candidate_index} unavailable/unsuitable; trying next ranked video.")
+                log(
+                    f"Candidate {candidate_index} download failed; "
+                    "trying the next highest-ranked trending video."
+                )
 
         if not episode or not stream or selected_start is None:
             raise RuntimeError(
