@@ -708,33 +708,41 @@ def main():
                 source_errors.append(f"{source}: {str(exc)[:300]}")
                 log(f"Source {source_index + 1} could not be scanned; continuing.")
 
-        ranked_candidates.sort(
-            key=lambda x: (
-                float(x.get("trend_score", 0)),
-                int(x.get("view_count", 0)),
-                float(x.get("timestamp", 0)),
-            ),
-            reverse=True,
-        )
         last_source_username = str(history.get("last_source_username", "")).lower().lstrip("@")
+        account_order = [
+            urlparse(source).path.strip("/").lstrip("@").lower()
+            for source in sources if "tiktok.com/@" in source.lower()
+        ]
+        if account_order and last_source_username in account_order:
+            last_index = account_order.index(last_source_username)
+            account_order = account_order[last_index + 1:] + account_order[:last_index + 1]
+        account_priority = {username: index for index, username in enumerate(account_order)}
+
+        # Round-robin creator rotation: exhaust the next creator's trending-ranked
+        # candidates first, then move to the following creator if downloads fail.
+        ranked_candidates = [
+            item for item in ranked_candidates
+            if str(item.get("source_username") or "").lower().lstrip("@") != last_source_username
+        ]
+        ranked_candidates.sort(
+            key=lambda item: (
+                account_priority.get(str(item.get("source_username") or "").lower().lstrip("@"), len(account_priority)),
+                -float(item.get("trend_score", 0)),
+                -int(item.get("view_count", 0)),
+                -float(item.get("timestamp", 0)),
+            )
+        )
         if last_source_username:
-            alternate_candidates = [
-                item for item in ranked_candidates
-                if str(item.get("source_username") or "").lower().lstrip("@") != last_source_username
-            ]
-            if alternate_candidates:
-                skipped = len(ranked_candidates) - len(alternate_candidates)
-                ranked_candidates = alternate_candidates
-                log(
-                    f"Account rotation: last successful account was @{last_source_username}; "
-                    f"skipping {skipped} candidate(s) from that account and choosing another creator."
-                )
-            else:
-                raise RuntimeError(
-                    f"Account rotation safety stop: last account was @{last_source_username}, "
-                    "and no unseen candidates are available from another approved creator. "
-                    "No repeat-account post was queued."
-                )
+            log(
+                f"Account rotation: previous account was @{last_source_username}; "
+                f"next creator priority is @{account_order[0] if account_order else 'unknown'}."
+            )
+        if not ranked_candidates:
+            raise RuntimeError(
+                f"Account rotation safety stop: no unseen candidates are available "
+                f"from creators other than @{last_source_username or 'the previous account'}. "
+                "No repeat-account post was queued."
+            )
 
         log(
             f"Combined scan complete: {len(sources)} approved profiles; "
