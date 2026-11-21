@@ -51,7 +51,7 @@ jobs:
       - name: Validate Python syntax
         run: python -m compileall -q .
 
-      - name: Find latest authorized TikTok video, edit and queue one Facebook Reel
+      - name: Scan six authorized TikTok profiles, rank trending videos, edit and queue one Facebook Reel
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
