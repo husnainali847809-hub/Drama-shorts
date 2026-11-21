@@ -596,13 +596,15 @@ def get_stream_source(video_url):
         headers = selected.get("http_headers") or headers
 
     duration = float(info.get("duration") or 0)
-    if not stream_url or duration <= CLIP_SECONDS + 5:
+    if not stream_url or duration < 10:
         available_count = len(formats)
-        raise RuntimeError(
-            "No single combined audio/video stream is available "
-            f"(yt-dlp exposed {available_count} format(s)); "
-            "the video may require sign-in, verification, or separate DASH tracks."
-        )
+        if not stream_url:
+            raise RuntimeError(
+                "No single combined audio/video stream is available "
+                f"(yt-dlp exposed {available_count} format(s)); "
+                "the video may require sign-in, verification, or separate DASH tracks."
+            )
+        raise RuntimeError(f"Video is shorter than the 10-second minimum ({duration:.1f}s).")
     return {
         "url": stream_url,
         "headers": headers,
@@ -652,8 +654,8 @@ def download_candidate_for_frame_check(video_url, work_dir):
     if local_path is None:
         raise RuntimeError("yt-dlp completed but no usable local video file was found.")
     duration = float(info.get("duration") or 0)
-    if duration <= CLIP_SECONDS + 5:
-        raise RuntimeError(f"Downloaded video is too short or has unknown duration ({duration:.1f}s).")
+    if duration < 10:
+        raise RuntimeError(f"Downloaded video is shorter than the 10-second minimum ({duration:.1f}s).")
     log(f"Downloaded candidate locally for frame analysis ({local_path.suffix}, {local_path.stat().st_size} bytes).")
     return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
 
@@ -718,10 +720,12 @@ def extract_stream_frame(stream, second, destination, video_url=None):
 
 def candidate_starts(duration):
     duration = float(duration)
-    if duration < CLIP_SECONDS + 5:
-        raise RuntimeError(f"Episode is too short for a {CLIP_SECONDS}-second clip.")
-    # Sample 12 evenly distributed windows for distinct clips across daily slots.
-    last_start = max(0.0, duration - CLIP_SECONDS)
+    if duration < 10:
+        raise RuntimeError(f"Video is shorter than the 10-second minimum ({duration:.1f}s).")
+    # Short TikTok edits are valid sources too. For them, analyze the whole video;
+    # longer sources provide up to 12 evenly distributed clip-length windows.
+    analysis_span = min(float(CLIP_SECONDS), duration)
+    last_start = max(0.0, duration - analysis_span)
     if last_start <= 0:
         return [0.0]
     return [round(last_start * i / 11, 2) for i in range(12)]
@@ -750,9 +754,10 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
     for index, start in enumerate(starts):
         # Three ordered samples keep the vision request compact while preserving
         # enough temporal context to judge the scene.
+        available_span = max(0.1, min(float(CLIP_SECONDS), float(stream["duration"]) - float(start)))
         for frame_number, offset in enumerate((
-            CLIP_SECONDS * 0.20, CLIP_SECONDS * 0.50,
-            CLIP_SECONDS * 0.80,
+            available_span * 0.20, available_span * 0.50,
+            available_span * 0.80,
         )):
             frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
             try:
