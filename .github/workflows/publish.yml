@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pakistani-drama-clips-buffer
@@ -25,14 +25,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Restore processed episode history
-        uses: actions/cache@v4
-        with:
-          path: state/processed.json
-          key: drama-history-${{ github.run_id }}
-          restore-keys: |
-            drama-history-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -60,13 +52,25 @@ jobs:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_CHANNEL_ID: ${{ secrets.BUFFER_CHANNEL_ID }}
           BUFFER_EXPECTED_CHANNEL_NAME: ${{ vars.BUFFER_EXPECTED_CHANNEL_NAME }}
-          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
-          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
-          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          CLOUDINARY_FOLDER: pakistani-drama-clips
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           CLIP_SECONDS: '60'
           SCENE_PREFERENCE: ${{ vars.SCENE_PREFERENCE }}
         run: python main.py
+
+      - name: Persist duplicate-prevention history
+        if: success()
+        run: |
+          if git diff --quiet -- state/processed.json; then
+            echo "No history changes to save."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/processed.json
+            git commit -m "Update processed drama video history"
+            git push
+          fi
 
       - name: Save generated clip for review
         if: always()
