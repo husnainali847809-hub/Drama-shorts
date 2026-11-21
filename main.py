@@ -700,7 +700,9 @@ def extract_stream_frame(stream, second, destination, video_url=None):
 
         if result is not None:
             last_error = (result.stderr or result.stdout or "No frame returned")[-500:]
-        if attempt >= 2 or not video_url:
+        # Refreshing a remote URL cannot repair a downloaded local file.
+        # Stop here so the caller receives the real local FFmpeg error.
+        if local_input or attempt >= 2 or not video_url:
             break
 
         log(f"Frame request failed (attempt {attempt + 1}); refreshing the stream URL.")
