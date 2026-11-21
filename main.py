@@ -619,6 +619,22 @@ def ffmpeg_headers(headers):
     return ("\r\n".join(lines) + "\r\n") if lines else ""
 
 
+def download_candidate_for_frame_check(video_url, work_dir):
+    """Download one authorized candidate locally if its CDN stream cannot serve frames."""
+    output_template = str(Path(work_dir) / "candidate_source.%(ext)s")
+    options = {
+        "format": "best", "outtmpl": output_template, "noplaylist": True,
+        "quiet": True, "no_warnings": True, "retries": 3,
+        "fragment_retries": 3, "socket_timeout": 30,
+    }
+    with YoutubeDL(options) as ydl:
+        info = ydl.extract_info(video_url, download=True)
+        local_path = Path(ydl.prepare_filename(info))
+    if not local_path.exists() or local_path.stat().st_size < 100_000:
+        raise RuntimeError("yt-dlp fallback download was missing or too small.")
+    log("Downloaded candidate locally for frame analysis.")
+    return str(local_path)
+
 def extract_stream_frame(stream, second, destination, video_url=None):
     """
     Extract one frame. If a signed media URL has expired or the CDN rejects it,
@@ -633,11 +649,12 @@ def extract_stream_frame(stream, second, destination, video_url=None):
             "-rw_timeout", "30000000",
             "-ss", f"{max(0.0, float(second)):.3f}",
         ]
-        header_text = ffmpeg_headers(stream.get("headers"))
+        local_input = stream.get("local_path")
+        header_text = "" if local_input else ffmpeg_headers(stream.get("headers"))
         if header_text:
             command.extend(["-headers", header_text])
         command.extend([
-            "-i", stream["url"],
+            "-i", local_input or stream["url"],
             "-frames:v", "1",
             "-vf", "scale='min(640,iw)':-2",
             "-q:v", "3", "-y", str(destination),
@@ -712,7 +729,17 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
             CLIP_SECONDS * 0.80,
         )):
             frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
-            extract_stream_frame(stream, start + offset, frame_path, video_url=video_url)
+            try:
+                extract_stream_frame(stream, start + offset, frame_path, video_url=video_url)
+            except Exception as remote_error:
+                if not video_url:
+                    raise
+                log(f"Remote frame extraction failed; trying local download: {str(remote_error)[:180]}")
+                local_path = stream.get("local_path")
+                if not local_path:
+                    local_path = download_candidate_for_frame_check(video_url, work_dir)
+                    stream["local_path"] = local_path
+                extract_stream_frame(stream, start + offset, frame_path, video_url=None)
             with Image.open(frame_path) as image:
                 image = image.convert("RGB")
                 image.thumbnail((640, 640))
@@ -775,11 +802,12 @@ def fetch_selected_stream_clip(stream, start, destination):
         "-rw_timeout", "30000000",
         "-ss", f"{max(0.0, float(start)):.3f}",
     ]
-    header_text = ffmpeg_headers(stream.get("headers"))
+    local_input = stream.get("local_path")
+    header_text = "" if local_input else ffmpeg_headers(stream.get("headers"))
     if header_text:
         command.extend(["-headers", header_text])
     command.extend([
-        "-i", stream["url"],
+        "-i", local_input or stream["url"],
         "-t", str(CLIP_SECONDS),
         "-map", "0:v:0", "-map", "0:a?",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
