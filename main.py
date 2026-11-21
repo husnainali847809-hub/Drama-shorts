@@ -362,38 +362,29 @@ def discover_facebook_latest(page_url, seen_ids):
     return selected
 
 
-def discover_tiktok_latest(profile_url, seen_ids):
-    """Find the newest unseen public video from one authorized TikTok profile.
-
-    Uses yt-dlp's ordinary public extractor only. It does not use cookies,
-    login credentials, private endpoints, or access-control workarounds.
-    """
+def discover_tiktok_candidates(profile_url, seen_ids):
+    """Scan an authorized public profile and rank unseen videos by engagement."""
     parsed = urlparse(profile_url)
     match = re.search(r"/@([A-Za-z0-9._-]+)", parsed.path)
     if not match:
         raise RuntimeError(f"Invalid TikTok profile URL: {profile_url}")
     username = match.group(1)
     opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": "in_playlist",
-        "playlistend": 30,
-        "lazy_playlist": True,
-        "ignoreerrors": True,
-        "skip_download": True,
-        "socket_timeout": 30,
-        "extractor_retries": 2,
-        "noplaylist": False,
+        "quiet": True, "no_warnings": True, "extract_flat": False,
+        "playlistend": max(10, min(50, int(os.getenv("TIKTOK_SCAN_LIMIT", "30")))),
+        "lazy_playlist": True, "ignoreerrors": True, "skip_download": True,
+        "socket_timeout": 30, "extractor_retries": 2, "noplaylist": False,
     }
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(profile_url, download=False)
     if not isinstance(info, dict):
-        raise RuntimeError(f"TikTok did not return public profile data for @{username}.")
-    entries = info.get("entries")
-    if entries is None:
-        entries = [info]
-
+        raise RuntimeError(f"TikTok returned no public profile data for @{username}.")
+    entries = info.get("entries") or [info]
+    max_age_days = max(1, int(os.getenv("TIKTOK_MAX_AGE_DAYS", "30")))
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=max_age_days)
     candidates = []
+    import math
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -407,27 +398,42 @@ def discover_tiktok_latest(profile_url, seen_ids):
             else:
                 continue
         timestamp = entry.get("timestamp")
-        upload_date = str(entry.get("upload_date") or "")
-        candidates.append((float(timestamp or 0), upload_date, {
-            "id": video_id,
-            "url": str(video_url),
+        if not timestamp:
+            try:
+                timestamp = datetime.strptime(str(entry.get("upload_date") or ""), "%Y%m%d").replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                timestamp = 0
+        if timestamp:
+            published = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+            if published < cutoff:
+                continue
+            age_hours = max(1.0, (now - published).total_seconds() / 3600.0)
+        else:
+            age_hours = max_age_days * 24.0
+        views = max(0, int(entry.get("view_count") or 0))
+        likes = max(0, int(entry.get("like_count") or 0))
+        comments = max(0, int(entry.get("comment_count") or 0))
+        shares = max(0, int(entry.get("repost_count") or entry.get("share_count") or 0))
+        engagement = (likes + 2 * comments + 3 * shares) / max(views, 1)
+        velocity = views / age_hours
+        score = 0.25 * math.log1p(views) + 0.35 * math.log1p(velocity) + 0.40 * min(engagement, 1.0) * 100
+        candidates.append({
+            "id": video_id, "url": str(video_url),
             "title": str(entry.get("title") or f"TikTok video from @{username}"),
-            "source_username": username,
-        }))
-
-    if not candidates:
-        log(f"No unseen publicly accessible TikTok videos found for @{username}.")
-        return None
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    selected = candidates[0][2]
-    log(f"TikTok profile @{username}: found {len(candidates)} unseen public video(s); selected latest.")
-    return selected
-
+            "source_username": username, "timestamp": float(timestamp or 0),
+            "view_count": views, "like_count": likes,
+            "comment_count": comments, "share_count": shares,
+            "trend_score": score,
+        })
+    candidates.sort(key=lambda x: (x["trend_score"], x["view_count"], x["timestamp"]), reverse=True)
+    log(f"TikTok @{username}: scanned {len(entries)} entries; {len(candidates)} unseen recent candidates.")
+    return candidates
 
 def discover_episode(source_url, seen_ids):
     lower_url = source_url.lower()
     if "tiktok.com/@" in lower_url:
-        return discover_tiktok_latest(source_url, seen_ids)
+        candidates = discover_tiktok_candidates(source_url, seen_ids)
+        return candidates[0] if candidates else None
 
     if "facebook.com/" in lower_url or "fb.watch/" in lower_url:
         return discover_facebook_latest(source_url, seen_ids)
@@ -885,45 +891,45 @@ def main():
     selection_reason = ""
     source_errors = []
 
-    # Validate each source through frame classification before choosing it.
-    # A stream URL may resolve successfully while the CDN still blocks FFmpeg
-    # or YouTube demands account verification. In that case, skip this source.
+    # Scan every approved profile, combine unseen videos, and rank the pool by engagement.
     with tempfile.TemporaryDirectory(prefix="drama-stream-work-") as work_dir:
+        ranked_candidates = []
         for source_index, source in enumerate(sources):
             try:
-                found = discover_episode(source, set(history["video_ids"]))
-                if not found:
-                    log(f"No unseen episode found at source {source_index + 1}; checking next source.")
-                    continue
-                resolved_stream = get_stream_source(found["url"])
-                starts = candidate_starts(resolved_stream["duration"])
-                log(
-                    f"Resolved online stream for '{found.get('title')}'. "
-                    f"Checking {len(starts)} candidate windows without saving the full episode."
-                )
-                try:
-                    chosen_start, chosen_category, chosen_reason = classify_stream_candidates(
-                        resolved_stream, starts, work_dir, video_url=found["url"]
-                    )
-                except Exception as frame_error:
-                    detail = str(frame_error)
-                    source_errors.append(f"{source}: frame/classification failed: {detail[:300]}")
-                    log(
-                        f"Source {source_index + 1} could not provide readable frames "
-                        f"(possibly sign-in/anti-bot protected); trying the next source."
-                    )
-                    continue
-
-                episode = found
-                stream = resolved_stream
-                source_used = source
-                selected_start = chosen_start
-                selected_category = chosen_category
-                selection_reason = chosen_reason
-                break
+                if "tiktok.com/@" in source.lower():
+                    found_list = discover_tiktok_candidates(source, set(history["video_ids"]))
+                    for found in found_list:
+                        found["source_url"] = source
+                        ranked_candidates.append(found)
+                else:
+                    found = discover_episode(source, set(history["video_ids"]))
+                    if found:
+                        found["source_url"] = source
+                        ranked_candidates.append(found)
             except Exception as exc:
                 source_errors.append(f"{source}: {str(exc)[:300]}")
-                log(f"Source {source_index + 1} could not be checked; trying the next source.")
+                log(f"Source {source_index + 1} could not be scanned; continuing.")
+        ranked_candidates.sort(
+            key=lambda x: (float(x.get("trend_score", 0)), int(x.get("view_count", 0)), float(x.get("timestamp", 0))),
+            reverse=True,
+        )
+        log(f"Combined scan complete: {len(sources)} profiles; {len(ranked_candidates)} unseen candidates.")
+        for candidate_index, found in enumerate(ranked_candidates, start=1):
+            source = found.get("source_url", "")
+            try:
+                log(f"Trying trending candidate {candidate_index}/{len(ranked_candidates)}: {found.get('title')} from @{found.get('source_username', 'unknown')}; score={float(found.get('trend_score', 0)):.2f}.")
+                resolved_stream = get_stream_source(found["url"])
+                starts = candidate_starts(resolved_stream["duration"])
+                log(f"Resolved stream; checking {len(starts)} scene windows.")
+                chosen_start, chosen_category, chosen_reason = classify_stream_candidates(
+                    resolved_stream, starts, work_dir, video_url=found["url"]
+                )
+                episode, stream, source_used = found, resolved_stream, source
+                selected_start, selected_category, selection_reason = chosen_start, chosen_category, chosen_reason
+                break
+            except Exception as exc:
+                source_errors.append(f"{found.get('url', source)}: {str(exc)[:300]}")
+                log(f"Candidate {candidate_index} unavailable/unsuitable; trying next ranked video.")
 
         if not episode or not stream or selected_start is None:
             raise RuntimeError(
