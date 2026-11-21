@@ -55,12 +55,13 @@ jobs:
       - name: Persist duplicate-prevention history
         if: success()
         run: |
-          if [ -z "$(git status --porcelain -- state/processed.json)" ]; then
+          # Force-add so history is persisted even if a future ignore rule is added.
+          git add -f state/processed.json
+          if git diff --cached --quiet -- state/processed.json; then
             echo "No history changes to save."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state/processed.json
             git commit -m "Update processed drama video history"
             git push
           fi
