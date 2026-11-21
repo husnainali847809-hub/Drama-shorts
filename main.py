@@ -10,9 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-import imageio_ffmpeg
 import requests
-from moviepy import VideoFileClip, AudioFileClip, CompositeAudioClip
 from yt_dlp import YoutubeDL
 
 ROOT = Path(__file__).resolve().parent
@@ -21,14 +19,6 @@ RIGHTS_FILE = ROOT / "resources" / "rights.json"
 MUSIC_ROOT = ROOT / "dramas"
 STATE_FILE = ROOT / "state" / "processed.json"
 OUTPUT_DIR = ROOT / "output"
-ALLOWED_CLIP_SECONDS = {30, 45, 60, 180}
-CLIP_SECONDS = int(os.getenv("CLIP_SECONDS", "60"))
-if CLIP_SECONDS not in ALLOWED_CLIP_SECONDS:
-    raise ValueError(f"CLIP_SECONDS must be one of {sorted(ALLOWED_CLIP_SECONDS)}; got {CLIP_SECONDS}.")
-SCENE_PREFERENCE = os.getenv(
-    "SCENE_PREFERENCE",
-    "Choose the most coherent, engaging story moment with a clear beginning and payoff."
-).strip()
 ALLOWED_CATEGORIES = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
 ALLOWED_TIKTOK_USERS = {
@@ -659,108 +649,8 @@ def download_trending_candidate(video_url, work_dir):
     log(f"Downloaded trending candidate ({local_path.suffix}, {local_path.stat().st_size} bytes).")
     return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
 
-def fetch_selected_stream_clip(stream, start, destination):
-    """Fetch only the chosen short segment, not the full episode."""
-    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    command = [
-        ffmpeg, "-hide_banner", "-loglevel", "error",
-        "-rw_timeout", "30000000",
-        "-ss", f"{max(0.0, float(start)):.3f}",
-    ]
-    local_input = stream.get("local_path")
-    header_text = "" if local_input else ffmpeg_headers(stream.get("headers"))
-    if header_text:
-        command.extend(["-headers", header_text])
-    command.extend([
-        "-i", local_input or stream["url"],
-        "-t", str(CLIP_SECONDS),
-        "-map", "0:v:0", "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart", "-y", str(destination),
-    ])
-    last_error = "No clip returned"
-    for attempt in range(2):
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=600)
-            if result.returncode == 0 and Path(destination).is_file() and Path(destination).stat().st_size >= 50_000:
-                return Path(destination)
-            last_error = (result.stderr or result.stdout or "FFmpeg produced no usable clip")[-700:]
-        except subprocess.TimeoutExpired:
-            last_error = "FFmpeg timed out while creating the selected clip."
-        except OSError as exc:
-            last_error = str(exc)
-        if attempt == 0:
-            log(f"Clip encoding failed; retrying once: {last_error[:180]}")
-    raise RuntimeError(f"Could not create selected local video segment: {last_error}")
-
-
-def reusable_music_track(category):
-    """Find a local background-music file without requiring sidecar licence metadata."""
-    folder = MUSIC_ROOT / category
-    if not folder.exists():
-        return None, {"title": "Original audio only", "attribution": ""}
-    for track in sorted(folder.iterdir()):
-        if track.suffix.lower() in {".mp3", ".wav", ".m4a", ".aac"}:
-            return track, {"title": track.stem, "attribution": ""}
-    return None, {"title": "Original audio only", "attribution": ""}
-
-
-def adaptive_clip_seconds(source_path, start, category=None):
-    """Use the available source duration, capped only by Buffer's 90-second Reel limit."""
-    from moviepy import VideoFileClip
-
-    source = VideoFileClip(str(source_path))
-    try:
-        available = max(0.0, float(source.duration) - float(start))
-    finally:
-        source.close()
-
-    if available <= 0:
-        raise RuntimeError("No video duration remains at the selected scene position.")
-    # No minimum source length or category-based target duration.
-    # Keep the outgoing Facebook Reel within Buffer's 90-second destination limit.
-    duration = min(available, 90.0)
-    duration = max(1, int(duration))
-    log(f"Output duration: {duration}s (available={available:.2f}s, Buffer max=90s).")
-    return duration
-
-
-def render_clip(source_path, start, category, output_path, clip_seconds=None, music_dir=None):
-    """Try the professional editor, then use a safe FFmpeg vertical-render fallback."""
-    from editing_engine import render_professional_clip
-    duration = int(clip_seconds or adaptive_clip_seconds(source_path, start, category))
-    duration = max(1, min(duration, 90))
-    try:
-        return render_professional_clip(
-            source_path, start, category, output_path,
-            clip_seconds=duration, music_dir=music_dir,
-        )
-    except Exception as edit_error:
-        log(f"Professional editing failed; switching to safe FFmpeg render: {str(edit_error)[:220]}")
-        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        command = [
-            ffmpeg, "-hide_banner", "-loglevel", "error",
-            "-ss", f"{max(0.0, float(start)):.3f}", "-i", str(source_path),
-            "-t", str(duration),
-            "-map", "0:v:0", "-map", "0:a:0",
-            "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart", "-y", str(output_path),
-        ]
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=900)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("Both professional editor and FFmpeg fallback timed out.") from exc
-        if result.returncode != 0 or not Path(output_path).is_file() or Path(output_path).stat().st_size < 50_000:
-            detail = (result.stderr or result.stdout or "FFmpeg fallback produced no usable video")[-700:]
-            raise RuntimeError(f"Professional editor failed ({str(edit_error)[:180]}); FFmpeg fallback failed: {detail}")
-        log("Fallback render completed; source audio retained.")
-        return {"title": "Original drama audio only", "style": "safe_ffmpeg_fallback"}
-
 def upload_github_release(video_path, video_id, start, title):
-    """Host the final edited MP4 as a public GitHub Release asset for Buffer."""
+    """Host the unchanged downloaded source video as a public GitHub Release asset for Buffer."""
     repository = os.getenv("GITHUB_REPOSITORY", "").strip()
     if not repository or "/" not in repository:
         raise RuntimeError("GITHUB_REPOSITORY is missing; enable GitHub Actions repository context.")
@@ -770,7 +660,7 @@ def upload_github_release(video_path, video_id, start, title):
     tag = f"drama-{safe_id}-{int(round(float(start) * 100))}"
     asset = Path(video_path)
     if not asset.is_file() or asset.stat().st_size < 100_000:
-        raise RuntimeError("Final edited video is missing or too small for a GitHub Release.")
+        raise RuntimeError("Original downloaded video is missing or too small for a GitHub Release.")
     exists = subprocess.run(
         ["gh", "release", "view", tag],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -781,7 +671,7 @@ def upload_github_release(video_path, video_id, start, title):
         command = [
             "gh", "release", "create", tag, str(asset),
             "--title", str(title or "Pakistani Drama Clip")[:100],
-            "--notes", "Edited clip from a creator-authorized source video.",
+            "--notes", "Unmodified original-format video downloaded from a creator-authorized source.",
         ]
     result = subprocess.run(command, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
@@ -888,34 +778,36 @@ def main():
             )
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        start = 0.0
-        category = "interesting"
-        output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
-        clip_seconds = min(90, max(1, int(float(stream["duration"]))))
+        source_path = Path(stream["local_path"])
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "-", str(episode.get("id") or "trending"))[:70]
+        extension = source_path.suffix.lower() or ".video"
+        output_path = OUTPUT_DIR / f"trending_{safe_id}{extension}"
+
+        # Copy the downloaded bytes unchanged: no trimming, transcoding, resizing,
+        # cropping, overlays, effects, music, or audio/video re-encoding.
+        shutil.copy2(source_path, output_path)
+        if not output_path.is_file() or output_path.stat().st_size != source_path.stat().st_size:
+            raise RuntimeError("Could not preserve the original downloaded video unchanged.")
         log(
-            f"Rendering top trending download from 0s; duration={clip_seconds}s. "
-            "No scene selection or visual filtering."
+            f"Original video copied unchanged ({extension}, "
+            f"{output_path.stat().st_size} bytes); all editing and conversion disabled."
         )
-        music_meta = render_clip(
-            stream["local_path"], 0, category, output_path,
-            clip_seconds=clip_seconds, music_dir=None
-        )
+
         public_url = upload_github_release(
-            output_path, episode.get("id"), start, episode.get("title")
+            output_path, episode.get("id"), 0.0, episode.get("title")
         )
         from publisher.buffer import queue_facebook_reel
         caption = build_facebook_caption(
             episode.get("title", "Pakistani Drama"),
-            category,
+            "interesting",
         )
         queued = queue_facebook_reel(public_url, caption)
         save_history(history, episode["id"])
         log(
-            f"SUCCESS: queued one trending clip. Buffer post ID={queued.get('id')}; "
+            f"SUCCESS: queued one unchanged trending video. Buffer post ID={queued.get('id')}; "
             f"episode={episode.get('title')}; source={source_used}; "
             f"trend_score={float(episode.get('trend_score', 0)):.2f}; "
-            f"music={music_meta.get('title') or 'original audio only'}; "
-            "selection=trending score only"
+            f"format={extension}; selection=trending score only; editing=disabled"
         )
 
     if output_path.exists():
