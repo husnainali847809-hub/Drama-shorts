@@ -495,8 +495,7 @@ def download_episode(url, destination):
     for format_choice in format_choices:
         opts = {
             "format": format_choice,
-            "merge_output_format": "mp4",
-            "outtmpl": str(destination),
+                "outtmpl": str(destination),
             "noplaylist": True,
             "quiet": False,
             "no_warnings": False,
@@ -799,16 +798,15 @@ def main():
     if not sources:
         log("No channel/page links configured yet. Add authorized links to resources/drama_sources.txt.")
         return
+
     history = read_history()
     episode = None
     stream = None
     source_used = None
-    selected_start = None
-    selected_category = None
-    selection_reason = ""
     source_errors = []
 
-    # Scan every approved profile, combine unseen videos, and rank the pool by engagement.
+    # Rank unseen videos from approved creator profiles by trend score only.
+    # No scene/frame/OpenCV/AI visual suitability analysis is performed.
     with tempfile.TemporaryDirectory(prefix="drama-stream-work-") as work_dir:
         ranked_candidates = []
         for source_index, source in enumerate(sources):
@@ -826,11 +824,20 @@ def main():
             except Exception as exc:
                 source_errors.append(f"{source}: {str(exc)[:300]}")
                 log(f"Source {source_index + 1} could not be scanned; continuing.")
+
         ranked_candidates.sort(
-            key=lambda x: (float(x.get("trend_score", 0)), int(x.get("view_count", 0)), float(x.get("timestamp", 0))),
+            key=lambda x: (
+                float(x.get("trend_score", 0)),
+                int(x.get("view_count", 0)),
+                float(x.get("timestamp", 0)),
+            ),
             reverse=True,
         )
-        log(f"Combined scan complete: {len(sources)} profiles; {len(ranked_candidates)} unseen candidates.")
+        log(
+            f"Combined scan complete: {len(sources)} approved profiles; "
+            f"{len(ranked_candidates)} unseen candidates ranked by trend score."
+        )
+
         for candidate_index, found in enumerate(ranked_candidates, start=1):
             source = found.get("source_url", "")
             try:
@@ -839,55 +846,61 @@ def main():
                     f"{found.get('title')} from @{found.get('source_username', 'unknown')}; "
                     f"score={float(found.get('trend_score', 0)):.2f}."
                 )
-                # Trending score determines selection. Once the candidate downloads,
-                # accept it immediately: do not inspect frames, scenes, brightness,
-                # blur, black screens, or visual/content suitability.
-                candidate_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(found.get("id") or candidate_index))[:70]
+                candidate_id = re.sub(
+                    r"[^A-Za-z0-9_-]", "_",
+                    str(found.get("id") or candidate_index)
+                )[:70]
                 candidate_dir = Path(work_dir) / f"candidate_{candidate_index}_{candidate_id}"
                 candidate_dir.mkdir(parents=True, exist_ok=True)
-                downloaded = download_trending_candidate(found["url"], candidate_dir)
-                resolved_stream = {
+
+                # Download success is the only post-ranking acceptance condition.
+                downloaded = download_candidate_for_frame_check(found["url"], candidate_dir)
+                stream = {
                     "url": "",
                     "headers": {},
                     "duration": downloaded["duration"],
                     "title": downloaded["title"],
                     "local_path": downloaded["local_path"],
                 }
-                episode, stream, source_used = found, resolved_stream, source
-                selected_start = 0.0
-                selected_category = "interesting"
-                selection_reason = (
-                    f"Accepted by trending rank only; score={float(found.get('trend_score', 0)):.2f}"
-                )
+                episode = found
+                source_used = source
                 log(
-                    f"Accepted trending candidate {candidate_index}: download successful; "
-                    "visual/scene checks skipped."
+                    f"Accepted by trending rank only: downloaded "
+                    f"{Path(downloaded['local_path']).suffix} "
+                    f"({Path(downloaded['local_path']).stat().st_size} bytes). "
+                    "Skipping all scene/frame/suitability analysis."
                 )
                 break
             except Exception as exc:
                 source_errors.append(f"{found.get('url', source)}: {str(exc)[:300]}")
                 log(
-                    f"Candidate {candidate_index} download failed; "
-                    "trying the next highest-ranked trending video."
+                    f"Trending candidate {candidate_index} download failed; "
+                    "trying the next ranked video."
                 )
 
-        if not episode or not stream or selected_start is None:
+        if not episode or not stream:
             raise RuntimeError(
-                "No approved TikTok profile provided an unseen, accessible video that this runner "
-                "could read and classify. Private, sign-in-gated, or inaccessible videos are skipped; "
-                "access restrictions are not bypassed. "
+                "No unseen candidate from the approved creator profiles could be downloaded. "
+                "No scene analysis was performed. "
                 + " | ".join(source_errors[:5])
             )
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        start = selected_start
-        category = selected_category
-        reason = selection_reason
-        selected_path = Path(work_dir) / "selected_scene.mp4"
-        fetch_selected_stream_clip(stream, start, selected_path)
+        start = 0.0
+        category = "interesting"
         output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
-        music_meta = render_clip(selected_path, 0, category, output_path)
-        public_url = upload_github_release(output_path, episode.get('id'), start, episode.get('title'))
+        clip_seconds = min(90, max(1, int(float(stream["duration"]))))
+        log(
+            f"Rendering top trending download from 0s; duration={clip_seconds}s. "
+            "No scene selection or visual filtering."
+        )
+        music_meta = render_clip(
+            stream["local_path"], 0, category, output_path,
+            clip_seconds=clip_seconds, music_dir=None
+        )
+        public_url = upload_github_release(
+            output_path, episode.get("id"), start, episode.get("title")
+        )
         from publisher.buffer import queue_facebook_reel
         caption = build_facebook_caption(
             episode.get("title", "Pakistani Drama"),
@@ -896,11 +909,13 @@ def main():
         queued = queue_facebook_reel(public_url, caption)
         save_history(history, episode["id"])
         log(
-            f"SUCCESS: queued one {category} clip. Buffer post ID={queued.get('id')}; "
-            f"episode={episode.get('title')}; source={source_used}; start={start:.1f}s; "
+            f"SUCCESS: queued one trending clip. Buffer post ID={queued.get('id')}; "
+            f"episode={episode.get('title')}; source={source_used}; "
+            f"trend_score={float(episode.get('trend_score', 0)):.2f}; "
             f"music={music_meta.get('title') or 'original audio only'}; "
-            f"selection_reason={reason}"
+            "selection=trending score only"
         )
+
     if output_path.exists():
         output_path.unlink()
 
