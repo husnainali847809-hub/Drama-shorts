@@ -11,8 +11,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-import cloudinary
-import cloudinary.uploader
 import imageio_ffmpeg
 import requests
 from moviepy import VideoFileClip, AudioFileClip, CompositeAudioClip
@@ -909,27 +907,37 @@ def render_clip(source_path, start, category, output_path, clip_seconds=None, mu
         music_dir=music_dir,
     )
 
-def upload_cloudinary(video_path):
-    required = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]
-    missing = [key for key in required if not os.getenv(key, "").strip()]
-    if missing:
-        raise RuntimeError("Missing Cloudinary GitHub secrets: " + ", ".join(missing))
-    cloudinary.config(
-        cloud_name=os.environ["CLOUDINARY_CLOUD_NAME"],
-        api_key=os.environ["CLOUDINARY_API_KEY"],
-        api_secret=os.environ["CLOUDINARY_API_SECRET"],
-        secure=True,
-    )
-    result = cloudinary.uploader.upload(
-        str(video_path), resource_type="video",
-        folder=os.getenv("CLOUDINARY_FOLDER", "pakistani-drama-clips"),
-        timeout=300,
-    )
-    url = result.get("secure_url", "")
-    if not url.startswith("https://res.cloudinary.com/"):
-        raise RuntimeError("Cloudinary did not return a verified public HTTPS video URL.")
+def upload_github_release(video_path, video_id, start, title):
+    """Host the final edited MP4 as a public GitHub Release asset for Buffer."""
+    repository = os.getenv("GITHUB_REPOSITORY", "").strip()
+    if not repository or "/" not in repository:
+        raise RuntimeError("GITHUB_REPOSITORY is missing; enable GitHub Actions repository context.")
+    if not os.getenv("GH_TOKEN", "").strip() and not os.getenv("GITHUB_TOKEN", "").strip():
+        raise RuntimeError("GitHub release upload requires the Actions GITHUB_TOKEN (GH_TOKEN).")
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "-", str(video_id))[:80]
+    tag = f"drama-{safe_id}-{int(round(float(start) * 100))}"
+    asset = Path(video_path)
+    if not asset.is_file() or asset.stat().st_size < 100_000:
+        raise RuntimeError("Final edited video is missing or too small for a GitHub Release.")
+    exists = subprocess.run(
+        ["gh", "release", "view", tag],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+    if exists:
+        command = ["gh", "release", "upload", tag, str(asset), "--clobber"]
+    else:
+        command = [
+            "gh", "release", "create", tag, str(asset),
+            "--title", str(title or "Pakistani Drama Clip")[:100],
+            "--notes", "Edited clip from a creator-authorized source video.",
+        ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "gh release command failed")[-700:]
+        raise RuntimeError(f"GitHub Release upload failed: {detail}")
+    url = f"https://github.com/{repository}/releases/download/{tag}/{asset.name}"
+    log(f"Uploaded final clip to GitHub Release {tag}.")
     return url
-
 
 def main():
     require_rights()
@@ -973,21 +981,18 @@ def main():
             source = found.get("source_url", "")
             try:
                 log(f"Trying trending candidate {candidate_index}/{len(ranked_candidates)}: {found.get('title')} from @{found.get('source_username', 'unknown')}; score={float(found.get('trend_score', 0)):.2f}.")
-                try:
-                    resolved_stream = get_stream_source(found["url"])
-                    log("Resolved online stream.")
-                except Exception as stream_error:
-                    if "No single combined audio/video stream is available" not in str(stream_error):
-                        raise
-                    log("No combined online stream; downloading authorized candidate locally for DASH merge.")
-                    downloaded = download_candidate_for_frame_check(found["url"], work_dir)
-                    resolved_stream = {
-                        "url": "",
-                        "headers": {},
-                        "duration": downloaded["duration"],
-                        "title": downloaded["title"],
-                        "local_path": downloaded["local_path"],
-                    }
+                # Match the Poetry workflow: download the selected public creator video
+                # locally first, allowing yt-dlp/FFmpeg to merge separate DASH tracks.
+                # Scene analysis and final clipping then read this stable local file.
+                downloaded = download_candidate_for_frame_check(found["url"], work_dir)
+                resolved_stream = {
+                    "url": "",
+                    "headers": {},
+                    "duration": downloaded["duration"],
+                    "title": downloaded["title"],
+                    "local_path": downloaded["local_path"],
+                }
+                log("Downloaded authorized TikTok candidate locally; using the local file for scene analysis.")
                 starts = candidate_starts(resolved_stream["duration"])
                 log(f"Checking {len(starts)} scene windows.")
                 chosen_start, chosen_category, chosen_reason = classify_stream_candidates(
@@ -1016,7 +1021,7 @@ def main():
         fetch_selected_stream_clip(stream, start, selected_path)
         output_path = OUTPUT_DIR / "pakistani_drama_clip.mp4"
         music_meta = render_clip(selected_path, 0, category, output_path)
-        public_url = upload_cloudinary(output_path)
+        public_url = upload_github_release(output_path, episode.get('id'), start, episode.get('title'))
         from publisher.buffer import queue_facebook_reel
         caption = build_facebook_caption(
             episode.get("title", "Pakistani Drama"),
