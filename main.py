@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import random
@@ -14,8 +13,6 @@ from urllib.parse import urlparse
 import imageio_ffmpeg
 import requests
 from moviepy import VideoFileClip, AudioFileClip, CompositeAudioClip
-from scenedetect import open_video, SceneManager
-from scenedetect.detectors import ContentDetector
 from yt_dlp import YoutubeDL
 
 ROOT = Path(__file__).resolve().parent
@@ -620,8 +617,8 @@ def ffmpeg_headers(headers):
     return ("\r\n".join(lines) + "\r\n") if lines else ""
 
 
-def download_candidate_for_frame_check(video_url, work_dir):
-    """Download one authorized candidate locally; no visual suitability analysis is performed."""
+def download_trending_candidate(video_url, work_dir):
+    """Download one authorized candidate locally; selection is based on trend rank only."""
     output_template = str(Path(work_dir) / "candidate_source.%(ext)s")
     options = {
         "format": "bestvideo*+bestaudio/best",
@@ -663,225 +660,6 @@ def download_candidate_for_frame_check(video_url, work_dir):
         raise RuntimeError("Downloaded video has no readable positive duration.")
     log(f"Downloaded trending candidate ({local_path.suffix}, {local_path.stat().st_size} bytes).")
     return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
-
-def extract_stream_frame(stream, second, destination, video_url=None):
-    """Extract a frame with FFmpeg first and an independent OpenCV fallback."""
-    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    last_error = "No frame returned"
-    local_input = stream.get("local_path")
-
-    for attempt in range(3):
-        command = [ffmpeg, "-hide_banner", "-loglevel", "error"]
-        if local_input:
-            # Input-side seeking avoids the invalid output-side seek ordering.
-            command.extend(["-ss", f"{max(0.0, float(second)):.3f}", "-i", local_input])
-        else:
-            command.extend(["-rw_timeout", "30000000", "-ss", f"{max(0.0, float(second)):.3f}"])
-            header_text = ffmpeg_headers(stream.get("headers"))
-            if header_text:
-                command.extend(["-headers", header_text])
-            command.extend(["-i", stream["url"]])
-        command.extend([
-            "-map", "0:v:0", "-frames:v", "1",
-            "-vf", "scale=640:-2",
-            "-c:v", "mjpeg", "-pix_fmt", "yuvj420p",
-            "-q:v", "3", "-f", "image2", "-y", str(destination),
-        ])
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=100)
-            if result.returncode == 0 and Path(destination).is_file() and Path(destination).stat().st_size > 500:
-                from PIL import Image
-                with Image.open(destination) as check:
-                    check.verify()
-                return
-            last_error = (result.stderr or result.stdout or "FFmpeg returned no valid frame")[-500:]
-        except subprocess.TimeoutExpired:
-            last_error = "FFmpeg timed out while extracting a frame."
-        except Exception as exc:
-            last_error = str(exc)[:500]
-
-        if local_input or attempt >= 2 or not video_url:
-            break
-        log(f"Remote frame extraction failed (attempt {attempt + 1}); refreshing source URL.")
-        try:
-            stream.update(get_stream_source(video_url))
-        except Exception as exc:
-            last_error = f"{last_error}; refresh failed: {str(exc)[:180]}"
-            if any(term in str(exc).lower() for term in ("sign in to confirm", "confirm you're not a bot", "confirm you’re not a bot")):
-                break
-
-    # OpenCV is installed by scenedetect[opencv] and uses a different decoder/output path.
-    local_input = stream.get("local_path")
-    if local_input and Path(local_input).is_file():
-        try:
-            import cv2
-            from PIL import Image
-            capture = cv2.VideoCapture(str(local_input))
-            try:
-                if not capture.isOpened():
-                    raise RuntimeError("OpenCV could not open the downloaded video.")
-                capture.set(cv2.CAP_PROP_POS_MSEC, max(0.0, float(second)) * 1000.0)
-                ok, frame = capture.read()
-                if not ok or frame is None:
-                    capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    ok, frame = capture.read()
-                if not ok or frame is None:
-                    raise RuntimeError("No decodable frame at requested timestamp or video start.")
-                height, width = frame.shape[:2]
-                if width > 640:
-                    frame = cv2.resize(frame, (640, max(2, int(round(height * 640 / width)))), interpolation=cv2.INTER_AREA)
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                Image.fromarray(rgb).save(str(destination), format="JPEG", quality=85)
-            finally:
-                capture.release()
-            with Image.open(destination) as check:
-                check.verify()
-            if Path(destination).is_file() and Path(destination).stat().st_size > 500:
-                log("Frame extracted successfully using OpenCV fallback.")
-                return
-        except Exception as exc:
-            last_error = f"{last_error}; OpenCV fallback failed: {str(exc)[:250]}"
-
-    safe_error = re.sub(r"https?://\\S+", "<media-url>", last_error)
-    raise RuntimeError(f"All frame extraction methods failed: {safe_error}")
-
-def candidate_starts(duration):
-    duration = float(duration)
-    if duration <= 0:
-        raise RuntimeError("Video has no readable positive duration.")
-    # Short TikTok edits are valid sources too. For them, analyze the whole video;
-    # longer sources provide up to 12 evenly distributed clip-length windows.
-    analysis_span = min(float(CLIP_SECONDS), duration)
-    last_start = max(0.0, duration - analysis_span)
-    if last_start <= 0:
-        return [0.0]
-    return [round(last_start * i / 11, 2) for i in range(12)]
-
-
-def frame_data(clip, second):
-    from PIL import Image
-    import io
-    frame = clip.get_frame(second)
-    image = Image.fromarray(frame).convert("RGB")
-    image.thumbnail((512, 512))
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=68)
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
-def classify_stream_candidates(stream, starts, work_dir, video_url=None):
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Missing OPENROUTER_API_KEY GitHub secret.")
-    model = "google/gemini-2.5-flash"  # Pin a real vision model; never route through openrouter/free.
-    frames = []
-    from PIL import Image
-    import io
-
-    for index, start in enumerate(starts):
-        # Three ordered samples keep the vision request compact while preserving
-        # enough temporal context to judge the scene.
-        available_span = max(0.1, min(float(CLIP_SECONDS), float(stream["duration"]) - float(start)))
-        for frame_number, offset in enumerate((
-            available_span * 0.20, available_span * 0.50,
-            available_span * 0.80,
-        )):
-            frame_path = Path(work_dir) / f"candidate_{index}_{frame_number}.jpg"
-            try:
-                extract_stream_frame(stream, start + offset, frame_path, video_url=video_url)
-            except Exception as remote_error:
-                if not video_url:
-                    raise
-                log(f"Remote frame extraction failed; trying local download: {str(remote_error)[:180]}")
-                local_path = stream.get("local_path")
-                if not local_path:
-                    downloaded = download_candidate_for_frame_check(video_url, work_dir)
-                    stream["local_path"] = downloaded["local_path"]
-                    stream["duration"] = downloaded["duration"]
-                try:
-                    extract_stream_frame(stream, start + offset, frame_path, video_url=None)
-                except Exception as local_error:
-                    raise RuntimeError(
-                        f"Local video frame extraction failed ({stream.get('local_path')}): {str(local_error)[:500]}"
-                    ) from local_error
-            try:
-                with Image.open(frame_path) as image:
-                    image = image.convert("RGB")
-                    image.thumbnail((640, 640))
-                    buffer = io.BytesIO()
-                    image.save(buffer, format="JPEG", quality=78)
-                    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-            except Exception as image_error:
-                raise RuntimeError(f"Extracted frame is not a valid image: {image_error}") from image_error
-            if not encoded:
-                raise RuntimeError("Frame encoder returned an empty image.")
-            frames.append((index, encoded))
-
-    prompt = (
-        "You are an expert drama-scene editor. User's scene preference: "
-        + (SCENE_PREFERENCE or "Choose the most coherent engaging story moment.")
-        + " Each candidate contains three frames in time order. Select the strongest "
-        "continuous scene: frames should belong to one understandable moment, with "
-        "a clear emotional or story beat. Prefer meaningful character interaction, "
-        "visible action, reaction, or payoff. Reject unrelated shots, empty establishing "
-        "shots, black frames, and candidates with confusing jumps. Do not infer dialogue "
-        "or plot facts that are not visible. Classify the visible mood as exactly one of: "
-        "action, emotional, comedy, romantic, suspense, interesting. Return ONLY JSON "
-        "with selected_candidate, category, reason, and scene_summary. "
-        + '{"selected_candidate":0,"category":"interesting",'
-        + '"reason":"clear character reaction","scene_summary":"two characters react to news"}.'
-    )
-    content = [{"type": "text", "text": prompt}]
-    for index, encoded in frames:
-        content.append({"type": "text", "text": f"Candidate {index} frame:"})
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
-    response = None
-    last_api_error = None
-    for attempt in range(3):
-        try:
-            response = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0.2},
-                timeout=120,
-            )
-            if response.status_code in (408, 425, 429) or response.status_code >= 500:
-                last_api_error = f"temporary HTTP {response.status_code}: {response.text[:300]}"
-                if attempt < 2:
-                    import time
-                    time.sleep(min(2 ** attempt, 8))
-                    continue
-            response.raise_for_status()
-            break
-        except (requests.Timeout, requests.ConnectionError) as exc:
-            last_api_error = str(exc)
-            if attempt < 2:
-                import time
-                time.sleep(min(2 ** attempt, 8))
-                continue
-            raise RuntimeError(f"OpenRouter connection failed after retries: {last_api_error}") from exc
-        except requests.HTTPError as exc:
-            detail = (response.text if response is not None else str(exc))[:1200].replace(api_key, "[REDACTED]")
-            raise RuntimeError(f"OpenRouter rejected scene-classification request (model={model}): {detail}") from exc
-    if response is None:
-        raise RuntimeError(f"OpenRouter scene-classification failed after retries: {last_api_error}")
-    try:
-        payload = response.json()
-        raw = payload["choices"][0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"OpenRouter returned an unexpected response: {response.text[:500]}") from exc
-    if isinstance(raw, list):
-        raw = " ".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
-    match = re.search(r"\{.*\}", str(raw), re.S)
-    if not match:
-        raise RuntimeError(f"AI scene classifier returned no JSON: {str(raw)[:300]}")
-    result = json.loads(match.group(0))
-    selected = int(result.get("selected_candidate", -1))
-    category = str(result.get("category", "")).strip().lower()
-    if selected < 0 or selected >= len(starts) or category not in ALLOWED_CATEGORIES:
-        raise RuntimeError(f"AI returned invalid scene selection: {result}")
-    return starts[selected], category, str(result.get("reason", "")).strip()
-
 
 def fetch_selected_stream_clip(stream, start, destination):
     """Fetch only the chosen short segment, not the full episode."""
@@ -1067,7 +845,7 @@ def main():
                 candidate_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(found.get("id") or candidate_index))[:70]
                 candidate_dir = Path(work_dir) / f"candidate_{candidate_index}_{candidate_id}"
                 candidate_dir.mkdir(parents=True, exist_ok=True)
-                downloaded = download_candidate_for_frame_check(found["url"], candidate_dir)
+                downloaded = download_trending_candidate(found["url"], candidate_dir)
                 resolved_stream = {
                     "url": "",
                     "headers": {},
