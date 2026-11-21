@@ -681,10 +681,18 @@ def extract_stream_frame(stream, second, destination, video_url=None):
             if header_text:
                 command.extend(["-headers", header_text])
             command.extend(["-i", stream["url"]])
+        # Use a simple, explicit JPEG output pipeline. The previous filter
+        # expression passed nested quotes to FFmpeg as literal argv content;
+        # on some runner builds this makes the MJPEG encoder fail with
+        # "Invalid argument" even though the source video downloaded correctly.
         command.extend([
             "-frames:v", "1",
-            "-vf", "scale='min(640,iw)':-2",
-            "-q:v", "3", "-y", str(destination),
+            "-vf", "scale=640:-2",
+            "-c:v", "mjpeg",
+            "-pix_fmt", "yuvj420p",
+            "-q:v", "3",
+            "-f", "image2",
+            "-y", str(destination),
         ])
 
         try:
