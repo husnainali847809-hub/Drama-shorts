@@ -620,20 +620,42 @@ def ffmpeg_headers(headers):
 
 
 def download_candidate_for_frame_check(video_url, work_dir):
-    """Download one authorized candidate locally if its CDN stream cannot serve frames."""
+    """Download one authorized candidate locally, including separate DASH tracks."""
     output_template = str(Path(work_dir) / "candidate_source.%(ext)s")
     options = {
-        "format": "best", "outtmpl": output_template, "noplaylist": True,
-        "quiet": True, "no_warnings": True, "retries": 3,
-        "fragment_retries": 3, "socket_timeout": 30,
+        "format": "bestvideo*+bestaudio/best",
+        "merge_output_format": "mp4",
+        "outtmpl": output_template,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "retries": 3,
+        "fragment_retries": 5,
+        "file_access_retries": 3,
+        "socket_timeout": 45,
     }
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(video_url, download=True)
-        local_path = Path(ydl.prepare_filename(info))
-    if not local_path.exists() or local_path.stat().st_size < 100_000:
-        raise RuntimeError("yt-dlp fallback download was missing or too small.")
-    log("Downloaded candidate locally for frame analysis.")
-    return str(local_path)
+        candidates = []
+        for item in (info.get("requested_downloads") or []):
+            if item.get("filepath"):
+                candidates.append(Path(item["filepath"]))
+        if info.get("filepath"):
+            candidates.append(Path(info["filepath"]))
+        candidates.append(Path(ydl.prepare_filename(info)))
+    # Post-processors may change the extension; locate the actual downloaded file.
+    candidates.extend(Path(work_dir).glob("candidate_source.*"))
+    local_path = next(
+        (path for path in candidates if path.exists() and path.is_file() and path.stat().st_size >= 100_000),
+        None,
+    )
+    if local_path is None:
+        raise RuntimeError("yt-dlp completed but no usable local video file was found.")
+    duration = float(info.get("duration") or 0)
+    if duration <= CLIP_SECONDS + 5:
+        raise RuntimeError(f"Downloaded video is too short or has unknown duration ({duration:.1f}s).")
+    log(f"Downloaded candidate locally for frame analysis ({local_path.suffix}, {local_path.stat().st_size} bytes).")
+    return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
 
 def extract_stream_frame(stream, second, destination, video_url=None):
     """
@@ -653,8 +675,12 @@ def extract_stream_frame(stream, second, destination, video_url=None):
         header_text = "" if local_input else ffmpeg_headers(stream.get("headers"))
         if header_text:
             command.extend(["-headers", header_text])
+        if local_input:
+            # For local files, input-side seeking can miss frames in some containers.
+            command.extend(["-i", local_input, "-ss", f"{max(0.0, float(second)):.3f}"])
+        else:
+            command.extend(["-i", stream["url"]])
         command.extend([
-            "-i", local_input or stream["url"],
             "-frames:v", "1",
             "-vf", "scale='min(640,iw)':-2",
             "-q:v", "3", "-y", str(destination),
@@ -737,9 +763,15 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
                 log(f"Remote frame extraction failed; trying local download: {str(remote_error)[:180]}")
                 local_path = stream.get("local_path")
                 if not local_path:
-                    local_path = download_candidate_for_frame_check(video_url, work_dir)
-                    stream["local_path"] = local_path
-                extract_stream_frame(stream, start + offset, frame_path, video_url=None)
+                    downloaded = download_candidate_for_frame_check(video_url, work_dir)
+                    stream["local_path"] = downloaded["local_path"]
+                    stream["duration"] = downloaded["duration"]
+                try:
+                    extract_stream_frame(stream, start + offset, frame_path, video_url=None)
+                except Exception as local_error:
+                    raise RuntimeError(
+                        f"Local video frame extraction failed ({stream.get('local_path')}): {str(local_error)[:500]}"
+                    ) from local_error
             with Image.open(frame_path) as image:
                 image = image.convert("RGB")
                 image.thumbnail((640, 640))
@@ -948,9 +980,23 @@ def main():
             source = found.get("source_url", "")
             try:
                 log(f"Trying trending candidate {candidate_index}/{len(ranked_candidates)}: {found.get('title')} from @{found.get('source_username', 'unknown')}; score={float(found.get('trend_score', 0)):.2f}.")
-                resolved_stream = get_stream_source(found["url"])
+                try:
+                    resolved_stream = get_stream_source(found["url"])
+                    log("Resolved online stream.")
+                except Exception as stream_error:
+                    if "No single combined audio/video stream is available" not in str(stream_error):
+                        raise
+                    log("No combined online stream; downloading authorized candidate locally for DASH merge.")
+                    downloaded = download_candidate_for_frame_check(found["url"], work_dir)
+                    resolved_stream = {
+                        "url": "",
+                        "headers": {},
+                        "duration": downloaded["duration"],
+                        "title": downloaded["title"],
+                        "local_path": downloaded["local_path"],
+                    }
                 starts = candidate_starts(resolved_stream["duration"])
-                log(f"Resolved stream; checking {len(starts)} scene windows.")
+                log(f"Checking {len(starts)} scene windows.")
                 chosen_start, chosen_category, chosen_reason = classify_stream_candidates(
                     resolved_stream, starts, work_dir, video_url=found["url"]
                 )
