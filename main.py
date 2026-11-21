@@ -36,6 +36,14 @@ SCENE_PREFERENCE = os.getenv(
 ).strip()
 ALLOWED_CATEGORIES = {"action", "emotional", "comedy", "romantic", "suspense", "interesting"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+ALLOWED_TIKTOK_USERS = {
+    "drama.edits272",
+    "korai_editors",
+    "md.editx6",
+    "mwrites151",
+    "kazmieditx00",
+    "rm_edit17",
+}
 
 
 def log(message):
@@ -90,12 +98,18 @@ def read_sources():
         if not line or line.startswith("#"):
             continue
         parsed = urlparse(line)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        handle_match = re.fullmatch(r"/@([A-Za-z0-9._-]+)/?", parsed.path)
+        handle = handle_match.group(1).lower() if handle_match else ""
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc.lower() not in {"www.tiktok.com", "tiktok.com"}
+            or handle not in ALLOWED_TIKTOK_USERS
+        ):
             raise RuntimeError(
-                f"Source must be a complete http/https video or channel URL in "
-                f"{SOURCES_FILE.name}: {line}"
+                "TikTok-only source restriction: add only one of the six approved "
+                f"TikTok profile URLs to {SOURCES_FILE.name}: {line}"
             )
-        links.append(line)
+        links.append(f"https://www.tiktok.com/@{handle}")
     return list(dict.fromkeys(links))
 
 
