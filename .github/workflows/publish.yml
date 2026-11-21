@@ -62,7 +62,7 @@ jobs:
       - name: Persist duplicate-prevention history
         if: success()
         run: |
-          if git diff --quiet -- state/processed.json; then
+          if [ -z "$(git status --porcelain -- state/processed.json)" ]; then
             echo "No history changes to save."
           else
             git config user.name "github-actions[bot]"
