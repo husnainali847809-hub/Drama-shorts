@@ -14,19 +14,38 @@ def _need(name):
     return value
 
 
-def buffer_api(query):
-    response = requests.post(
-        BUFFER_URL,
-        headers={"Authorization": f"Bearer {_need('BUFFER_API_KEY')}", "Content-Type": "application/json"},
-        json={"query": query}, timeout=45,
-    )
-    response.raise_for_status()
-    data = response.json()
-    if data.get("errors"):
-        raise RuntimeError("Buffer GraphQL: " + "; ".join(x.get("message", "error") for x in data["errors"]))
-    if "data" not in data:
-        raise RuntimeError(f"Unexpected Buffer response: {data}")
-    return data["data"]
+def buffer_api(query, retries=2):
+    """Retry transient Buffer reads; createPost callers explicitly disable retries."""
+    attempts = max(1, int(retries) + 1)
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            response = requests.post(
+                BUFFER_URL,
+                headers={"Authorization": f"Bearer {_need('BUFFER_API_KEY')}", "Content-Type": "application/json"},
+                json={"query": query}, timeout=45,
+            )
+            if response.status_code in (408, 425, 429) or response.status_code >= 500:
+                last_error = RuntimeError(f"Temporary Buffer HTTP {response.status_code}: {response.text[:300]}")
+                if attempt + 1 < attempts:
+                    import time
+                    time.sleep(min(2 ** attempt, 8))
+                    continue
+            response.raise_for_status()
+            data = response.json()
+            if data.get("errors"):
+                raise RuntimeError("Buffer GraphQL: " + "; ".join(x.get("message", "error") for x in data["errors"]))
+            if "data" not in data:
+                raise RuntimeError(f"Unexpected Buffer response: {data}")
+            return data["data"]
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                import time
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            raise RuntimeError(f"Buffer connection failed after retries: {exc}") from exc
+    raise RuntimeError(f"Buffer API failed after retries: {last_error}")
 
 
 def verify_channel():
@@ -97,7 +116,9 @@ def queue_facebook_reel(video_url, caption):
         ... on MutationError {{ message }}
       }}
     }}'''
-    result = buffer_api(mutation).get("createPost") or {}
+    # Never retry createPost automatically: an accepted request with a lost
+    # response could otherwise create a duplicate scheduled post.
+    result = buffer_api(mutation, retries=0).get("createPost") or {}
     if result.get("message"):
         raise RuntimeError("Buffer rejected Facebook Reel: " + result["message"])
     post = result.get("post")
