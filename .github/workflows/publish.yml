@@ -43,23 +43,7 @@ jobs:
       - name: Validate Python syntax
         run: python -m compileall -q .
 
-      - name: Preflight FFmpeg
-        run: |
-          python - <<'PY'
-          import imageio_ffmpeg
-          print("FFmpeg:", imageio_ffmpeg.get_ffmpeg_exe())
-          PY
-          python - <<'PY'
-          import subprocess
-          import imageio_ffmpeg
-          result = subprocess.run(
-              [imageio_ffmpeg.get_ffmpeg_exe(), "-version"],
-              check=True, capture_output=True, text=True,
-          )
-          print("\\n".join(result.stdout.splitlines()[:2]))
-          PY
-
-      - name: Rank trending videos, download the top available candidate, edit and queue one Facebook Reel
+      - name: Rank trending videos, download the top available candidate unchanged and queue one Facebook Reel
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_CHANNEL_ID: ${{ secrets.BUFFER_CHANNEL_ID }}
@@ -67,7 +51,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          CLIP_SECONDS: '60'
         run: python main.py
 
       - name: Persist duplicate-prevention history
