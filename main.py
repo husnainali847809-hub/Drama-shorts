@@ -596,7 +596,7 @@ def get_stream_source(video_url):
         headers = selected.get("http_headers") or headers
 
     duration = float(info.get("duration") or 0)
-    if not stream_url or duration < 10:
+    if not stream_url or duration <= 0
         available_count = len(formats)
         if not stream_url:
             raise RuntimeError(
@@ -604,7 +604,6 @@ def get_stream_source(video_url):
                 f"(yt-dlp exposed {available_count} format(s)); "
                 "the video may require sign-in, verification, or separate DASH tracks."
             )
-        raise RuntimeError(f"Video is shorter than the 10-second minimum ({duration:.1f}s).")
     return {
         "url": stream_url,
         "headers": headers,
@@ -654,8 +653,8 @@ def download_candidate_for_frame_check(video_url, work_dir):
     if local_path is None:
         raise RuntimeError("yt-dlp completed but no usable local video file was found.")
     duration = float(info.get("duration") or 0)
-    if duration < 10:
-        raise RuntimeError(f"Downloaded video is shorter than the 10-second minimum ({duration:.1f}s).")
+    if duration <= 0:
+        raise RuntimeError("Downloaded video has no readable positive duration.")
     log(f"Downloaded candidate locally for frame analysis ({local_path.suffix}, {local_path.stat().st_size} bytes).")
     return {"local_path": str(local_path), "duration": duration, "title": info.get("title") or "Drama episode"}
 
@@ -720,8 +719,8 @@ def extract_stream_frame(stream, second, destination, video_url=None):
 
 def candidate_starts(duration):
     duration = float(duration)
-    if duration < 10:
-        raise RuntimeError(f"Video is shorter than the 10-second minimum ({duration:.1f}s).")
+    if duration <= 0:
+        raise RuntimeError("Video has no readable positive duration.")
     # Short TikTok edits are valid sources too. For them, analyze the whole video;
     # longer sources provide up to 12 evenly distributed clip-length windows.
     analysis_span = min(float(CLIP_SECONDS), duration)
@@ -869,40 +868,23 @@ def reusable_music_track(category):
     return None, {"title": "Original audio only", "attribution": ""}
 
 
-def adaptive_clip_seconds(source_path, start, category):
-    """Choose a category-aware scene length, always capped at three minutes."""
+def adaptive_clip_seconds(source_path, start, category=None):
+    """Use the available source duration, capped only by Buffer's 90-second Reel limit."""
     from moviepy import VideoFileClip
 
-    # Keep a coherent story beat long enough to develop, without forcing
-    # every mood into the same duration.
-    # Buffer's Facebook Reels destination rejects videos longer than 90 seconds.
-    # Keep every category within that platform limit.
-    targets = {
-        "comedy": 45,
-        "interesting": 60,
-        "action": 75,
-        "romantic": 90,
-        "suspense": 90,
-        "emotional": 90,
-    }
-    target = targets.get(str(category or "interesting").lower(), 60)
     source = VideoFileClip(str(source_path))
     try:
         available = max(0.0, float(source.duration) - float(start))
     finally:
         source.close()
 
-    duration = min(float(target), available, 90.0)
-    duration = int(duration)
-    if duration < 10:
-        raise RuntimeError(
-            f"Selected scene has only {duration} seconds available; "
-            "at least 10 seconds are needed to create a clip."
-        )
-    log(
-        f"Adaptive scene duration: {duration}s "
-        f"(category={category}, target={target}s, hard_max=90s)."
-    )
+    if available <= 0:
+        raise RuntimeError("No video duration remains at the selected scene position.")
+    # No minimum source length or category-based target duration.
+    # Keep the outgoing Facebook Reel within Buffer's 90-second destination limit.
+    duration = min(available, 90.0)
+    duration = max(1, int(duration))
+    log(f"Output duration: {duration}s (available={available:.2f}s, Buffer max=90s).")
     return duration
 
 
@@ -910,8 +892,8 @@ def render_clip(source_path, start, category, output_path, clip_seconds=None, mu
     """Use the shared three-style professional editing engine."""
     from editing_engine import render_professional_clip
     duration = int(clip_seconds or adaptive_clip_seconds(source_path, start, category))
-    # Final renderer-level guard: never create a Facebook Reel over 90 seconds.
-    duration = max(10, min(duration, 90))
+    # Final renderer-level guard: cap only to Buffer's Facebook Reels limit.
+    duration = max(1, min(duration, 90))
     return render_professional_clip(
         source_path,
         start,
