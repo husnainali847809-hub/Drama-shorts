@@ -835,21 +835,41 @@ def classify_stream_candidates(stream, starts, work_dir, video_url=None):
     for index, encoded in frames:
         content.append({"type": "text", "text": f"Candidate {index} frame:"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0.2},
-        timeout=120,
-    )
-    if response.status_code >= 400:
-        # OpenRouter's 4xx response explains model/vision/payload validation failures.
-        detail = response.text[:1200].replace(api_key, "[REDACTED]")
-        raise RuntimeError(
-            f"OpenRouter scene-classification failed (HTTP {response.status_code}; "
-            f"model={model}): {detail}"
-        )
-    payload = response.json()
-    raw = payload["choices"][0]["message"]["content"]
+    response = None
+    last_api_error = None
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0.2},
+                timeout=120,
+            )
+            if response.status_code in (408, 425, 429) or response.status_code >= 500:
+                last_api_error = f"temporary HTTP {response.status_code}: {response.text[:300]}"
+                if attempt < 2:
+                    import time
+                    time.sleep(min(2 ** attempt, 8))
+                    continue
+            response.raise_for_status()
+            break
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_api_error = str(exc)
+            if attempt < 2:
+                import time
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            raise RuntimeError(f"OpenRouter connection failed after retries: {last_api_error}") from exc
+        except requests.HTTPError as exc:
+            detail = (response.text if response is not None else str(exc))[:1200].replace(api_key, "[REDACTED]")
+            raise RuntimeError(f"OpenRouter rejected scene-classification request (model={model}): {detail}") from exc
+    if response is None:
+        raise RuntimeError(f"OpenRouter scene-classification failed after retries: {last_api_error}")
+    try:
+        payload = response.json()
+        raw = payload["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"OpenRouter returned an unexpected response: {response.text[:500]}") from exc
     if isinstance(raw, list):
         raw = " ".join(str(x.get("text", "")) for x in raw if isinstance(x, dict))
     match = re.search(r"\{.*\}", str(raw), re.S)
@@ -931,19 +951,37 @@ def adaptive_clip_seconds(source_path, start, category=None):
 
 
 def render_clip(source_path, start, category, output_path, clip_seconds=None, music_dir=None):
-    """Use the shared three-style professional editing engine."""
+    """Try the professional editor, then use a safe FFmpeg vertical-render fallback."""
     from editing_engine import render_professional_clip
     duration = int(clip_seconds or adaptive_clip_seconds(source_path, start, category))
-    # Final renderer-level guard: cap only to Buffer's Facebook Reels limit.
     duration = max(1, min(duration, 90))
-    return render_professional_clip(
-        source_path,
-        start,
-        category,
-        output_path,
-        clip_seconds=duration,
-        music_dir=music_dir,
-    )
+    try:
+        return render_professional_clip(
+            source_path, start, category, output_path,
+            clip_seconds=duration, music_dir=music_dir,
+        )
+    except Exception as edit_error:
+        log(f"Professional editing failed; switching to safe FFmpeg render: {str(edit_error)[:220]}")
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        command = [
+            ffmpeg, "-hide_banner", "-loglevel", "error",
+            "-ss", f"{max(0.0, float(start)):.3f}", "-i", str(source_path),
+            "-t", str(duration),
+            "-map", "0:v:0", "-map", "0:a:0",
+            "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart", "-y", str(output_path),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=900)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Both professional editor and FFmpeg fallback timed out.") from exc
+        if result.returncode != 0 or not Path(output_path).is_file() or Path(output_path).stat().st_size < 50_000:
+            detail = (result.stderr or result.stdout or "FFmpeg fallback produced no usable video")[-700:]
+            raise RuntimeError(f"Professional editor failed ({str(edit_error)[:180]}); FFmpeg fallback failed: {detail}")
+        log("Fallback render completed; source audio retained.")
+        return {"title": "Original drama audio only", "style": "safe_ffmpeg_fallback"}
 
 def upload_github_release(video_path, video_id, start, title):
     """Host the final edited MP4 as a public GitHub Release asset for Buffer."""
