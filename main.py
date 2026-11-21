@@ -596,7 +596,7 @@ def get_stream_source(video_url):
         headers = selected.get("http_headers") or headers
 
     duration = float(info.get("duration") or 0)
-    if not stream_url or duration <= 0
+    if not stream_url or duration <= 0:
         available_count = len(formats)
         if not stream_url:
             raise RuntimeError(
@@ -604,6 +604,8 @@ def get_stream_source(video_url):
                 f"(yt-dlp exposed {available_count} format(s)); "
                 "the video may require sign-in, verification, or separate DASH tracks."
             )
+        if duration <= 0:
+            raise RuntimeError("Video has no readable positive duration.")
     return {
         "url": stream_url,
         "headers": headers,
