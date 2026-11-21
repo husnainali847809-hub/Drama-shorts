@@ -43,6 +43,19 @@ jobs:
       - name: Validate Python syntax
         run: python -m compileall -q .
 
+      - name: Preflight media decoders
+        run: |
+          python - <<'PY'
+          import cv2
+          import imageio_ffmpeg
+          from PIL import Image
+          from moviepy import VideoFileClip
+          print("OpenCV:", cv2.__version__)
+          print("Pillow:", Image.__version__ if hasattr(Image, "__version__") else "available")
+          print("FFmpeg:", imageio_ffmpeg.get_ffmpeg_exe())
+          PY
+          imageio_ffmpeg.get_ffmpeg_exe() -version | head -n 2
+
       - name: Scan six authorized TikTok profiles, rank trending videos, edit and queue one Facebook Reel
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
