@@ -621,7 +621,6 @@ def download_trending_candidate(video_url, work_dir):
     output_template = str(Path(work_dir) / "candidate_source.%(ext)s")
     options = {
         "format": "bestvideo*+bestaudio/best",
-        "merge_output_format": "mp4",
         "outtmpl": output_template,
         "noplaylist": True,
         "quiet": True,
