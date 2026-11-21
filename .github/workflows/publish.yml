@@ -38,7 +38,6 @@ jobs:
           pip install -r requirements.txt
           python -m pip install --upgrade "yt-dlp[default]"
           yt-dlp --version
-          python -c "import imageio_ffmpeg; print('Bundled FFmpeg:', imageio_ffmpeg.get_ffmpeg_exe())"
 
       - name: Validate Python syntax
         run: python -m compileall -q .
