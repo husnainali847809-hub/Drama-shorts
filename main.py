@@ -116,7 +116,7 @@ def require_rights():
 def read_history():
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not STATE_FILE.exists():
-        return {"video_ids": [], "video_clips": {}}
+        return {"video_ids": [], "video_clips": {}, "last_source_username": ""}
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         clips = data.get("video_clips", {})
@@ -133,6 +133,7 @@ def read_history():
             "video_ids": list(data.get("video_ids", []))[-1000:],
             "video_clips": clean_clips,
             "drama_last": str(data.get("drama_last", "")),
+            "last_source_username": str(data.get("last_source_username", "")).lower().lstrip("@"),
             "drama_counts": {
                 str(key): max(0, int(value))
                 for key, value in (data.get("drama_counts", {}) or {}).items()
@@ -140,10 +141,10 @@ def read_history():
             },
         }
     except (ValueError, OSError, TypeError):
-        return {"video_ids": [], "video_clips": {}, "drama_last": "", "drama_counts": {}}
+        return {"video_ids": [], "video_clips": {}, "drama_last": "", "drama_counts": {}, "last_source_username": ""}
 
 
-def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None):
+def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None, source_username=None):
     ids = list(history.get("video_ids", []))
     clips = dict(history.get("video_clips", {}))
     if clip_start is None:
@@ -163,6 +164,7 @@ def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None
             "video_ids": ids[-1000:],
             "video_clips": dict(list(clips.items())[-1000:]),
             "drama_last": str(drama_key or history.get("drama_last", "")),
+            "last_source_username": str(source_username or history.get("last_source_username", "")).lower().lstrip("@"),
             "drama_counts": {
                 **(history.get("drama_counts", {}) or {}),
                 **({
@@ -714,9 +716,29 @@ def main():
             ),
             reverse=True,
         )
+        last_source_username = str(history.get("last_source_username", "")).lower().lstrip("@")
+        if last_source_username:
+            alternate_candidates = [
+                item for item in ranked_candidates
+                if str(item.get("source_username") or "").lower().lstrip("@") != last_source_username
+            ]
+            if alternate_candidates:
+                skipped = len(ranked_candidates) - len(alternate_candidates)
+                ranked_candidates = alternate_candidates
+                log(
+                    f"Account rotation: last successful account was @{last_source_username}; "
+                    f"skipping {skipped} candidate(s) from that account and choosing another creator."
+                )
+            else:
+                raise RuntimeError(
+                    f"Account rotation safety stop: last account was @{last_source_username}, "
+                    "and no unseen candidates are available from another approved creator. "
+                    "No repeat-account post was queued."
+                )
+
         log(
             f"Combined scan complete: {len(sources)} approved profiles; "
-            f"{len(ranked_candidates)} unseen candidates ranked by trend score."
+            f"{len(ranked_candidates)} eligible unseen candidates ranked by trend score."
         )
 
         for candidate_index, found in enumerate(ranked_candidates, start=1):
@@ -794,7 +816,10 @@ def main():
             "interesting",
         )
         queued = queue_facebook_reel(public_url, caption)
-        save_history(history, episode["id"])
+        save_history(
+            history, episode["id"],
+            source_username=episode.get("source_username") or "",
+        )
         log(
             f"SUCCESS: queued one unchanged trending video. Buffer post ID={queued.get('id')}; "
             f"episode={episode.get('title')}; source={source_used}; "
