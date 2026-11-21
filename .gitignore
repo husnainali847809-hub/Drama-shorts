@@ -5,7 +5,6 @@ __pycache__/
 venv/
 output/
 downloads/
-state/processed.json
 *.mp4
 *.mkv
 *.webm
