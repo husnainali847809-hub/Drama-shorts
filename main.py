@@ -933,9 +933,9 @@ def main():
 
         if not episode or not stream or selected_start is None:
             raise RuntimeError(
-                "No configured source provided a stream that this runner could read and classify. "
-                "YouTube sign-in/anti-bot checks and inaccessible CDN streams cannot be bypassed; "
-                "add another source that provides authorized, accessible video access. "
+                "No approved TikTok profile provided an unseen, accessible video that this runner "
+                "could read and classify. Private, sign-in-gated, or inaccessible videos are skipped; "
+                "access restrictions are not bypassed. "
                 + " | ".join(source_errors[:5])
             )
 
