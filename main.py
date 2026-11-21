@@ -598,14 +598,6 @@ def get_stream_source(video_url):
     }
 
 
-def ffmpeg_headers(headers):
-    lines = []
-    for key, value in (headers or {}).items():
-        if key and value is not None:
-            lines.append(f"{key}: {value}")
-    return ("\r\n".join(lines) + "\r\n") if lines else ""
-
-
 def download_trending_candidate(video_url, work_dir):
     """Download one authorized candidate locally; selection is based on trend rank only."""
     output_template = str(Path(work_dir) / "candidate_source.%(ext)s")
