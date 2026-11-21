@@ -53,7 +53,7 @@ In **Settings → Secrets and variables → Actions**, configure these Secrets:
 
 Configure these Variables:
 
-- `BUFFER_CHANNEL_ID` (or keep the existing secret named `BUFFER_CHANNEL_ID` if that is how the repository is currently configured)
+- `BUFFER_CHANNEL_ID` (GitHub Actions Secret)
 - `BUFFER_EXPECTED_CHANNEL_NAME` (optional)
 - `OPENROUTER_MODEL` (optional; the vision classifier currently pins its supported model)
 - `SCENE_PREFERENCE` (optional)
