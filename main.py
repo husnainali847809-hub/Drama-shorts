@@ -853,7 +853,7 @@ def main():
                 candidate_dir.mkdir(parents=True, exist_ok=True)
 
                 # Download success is the only post-ranking acceptance condition.
-                downloaded = download_candidate_for_frame_check(found["url"], candidate_dir)
+                downloaded = download_trending_candidate(found["url"], candidate_dir)
                 stream = {
                     "url": "",
                     "headers": {},
@@ -863,6 +863,9 @@ def main():
                 }
                 episode = found
                 source_used = source
+                selected_start = 0.0
+                selected_category = "interesting"
+                selection_reason = f"Trending-rank-only selection; score={float(found.get('trend_score', 0)):.2f}"
                 log(
                     f"Accepted by trending rank only: downloaded "
                     f"{Path(downloaded['local_path']).suffix} "
