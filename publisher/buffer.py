@@ -74,8 +74,13 @@ def next_publish_time():
 def queue_facebook_reel(video_url, caption):
     verify_channel()
     channel_id = _need("BUFFER_CHANNEL_ID")
-    if not video_url.startswith("https://res.cloudinary.com/"):
-        raise RuntimeError("Only a public Cloudinary HTTPS video URL may be queued.")
+    is_cloudinary = video_url.startswith("https://res.cloudinary.com/")
+    is_github_release = (
+        video_url.startswith("https://github.com/")
+        and "/releases/download/" in video_url
+    )
+    if not (is_cloudinary or is_github_release):
+        raise RuntimeError("Only a public Cloudinary or GitHub Release HTTPS video URL may be queued.")
     due_at = next_publish_time()
     mutation = f'''mutation QueueMovieFacebookReel {{
       createPost(input: {{
