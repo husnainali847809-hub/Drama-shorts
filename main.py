@@ -666,19 +666,19 @@ def extract_stream_frame(stream, second, destination, video_url=None):
     last_error = "No frame returned"
 
     for attempt in range(3):
-        command = [
-            ffmpeg, "-hide_banner", "-loglevel", "error",
-            "-rw_timeout", "30000000",
-            "-ss", f"{max(0.0, float(second)):.3f}",
-        ]
+        command = [ffmpeg, "-hide_banner", "-loglevel", "error"]
         local_input = stream.get("local_path")
-        header_text = "" if local_input else ffmpeg_headers(stream.get("headers"))
-        if header_text:
-            command.extend(["-headers", header_text])
         if local_input:
-            # For local files, input-side seeking can miss frames in some containers.
+            # Output-side seeking is slower but reliable across downloaded containers.
             command.extend(["-i", local_input, "-ss", f"{max(0.0, float(second)):.3f}"])
         else:
+            command.extend([
+                "-rw_timeout", "30000000",
+                "-ss", f"{max(0.0, float(second)):.3f}",
+            ])
+            header_text = ffmpeg_headers(stream.get("headers"))
+            if header_text:
+                command.extend(["-headers", header_text])
             command.extend(["-i", stream["url"]])
         command.extend([
             "-frames:v", "1",
