@@ -1,117 +1,68 @@
-# Pakistani Drama Clips Automation
+# TikTok Creator Clips → AI Editing → Buffer Queue
 
-This repository is prepared to create **one vertical Pakistani drama clip per scheduled run** and add it to the configured Facebook Reel queue in Buffer. The schedule runs five times daily (Pakistan time: 09:00, 12:00, 15:00, 18:00, 21:00), for a target of five queued clips per day when all inputs and services are available.
+This repository checks **only the six authorized TikTok creator profiles** listed in `resources/drama_sources.txt`. On each scheduled run it looks for a new public video, selects a scene with AI, renders a vertical clip, uploads it to Cloudinary, and queues a Facebook Reel in Buffer.
 
-## Google Drive video input (primary source)
+## TikTok sources
 
-The publishing workflow now reads the newest unprocessed video from one Google Drive folder using the Drive API. It downloads that file to the temporary GitHub Actions runner, analyzes candidate scenes, renders one vertical clip, uploads it to Cloudinary, and queues it in Buffer. The original full video is not committed to this repository.
+The source list contains only these profiles:
 
-### Configure Google OAuth securely
+- https://www.tiktok.com/@drama.edits272
+- https://www.tiktok.com/@korai_editors
+- https://www.tiktok.com/@md.editx6
+- https://www.tiktok.com/@mwrites151
+- https://www.tiktok.com/@kazmieditx00
+- https://www.tiktok.com/@rm_edit17
 
-1. In Google Cloud Console, enable the **Google Drive API** for the project used by your OAuth client.
-2. Use the OAuth client JSON you downloaded to obtain a refresh token with the `https://www.googleapis.com/auth/drive.readonly` scope. The OAuth consent/account must be the same Google account that can access the video folder.
-3. In GitHub **Settings → Secrets and variables → Actions → Secrets**, add:
-   - `DRIVE_CLIENT_ID` — OAuth client ID from the downloaded client JSON.
-   - `DRIVE_CLIENT_SECRET` — OAuth client secret from that JSON.
-   - `DRIVE_REFRESH_TOKEN` — refresh token (keep it secret; never commit or paste it into chat).
-4. In **Settings → Secrets and variables → Actions → Variables**, add:
-   - `DRIVE_FOLDER_ID` — the folder ID from the Google Drive folder URL (the part after `/folders/`).
-5. Put your authorized video file inside that folder. Supported inputs are regular video files such as MP4, MOV, MKV, or WEBM; Google Docs/Slides/Photos links are not video files.
+The workflow uses yt-dlp's normal public TikTok extractor. It does not use browser cookies, login credentials, private endpoints, DRM removal, or access-control workarounds. TikTok may change or restrict public profile extraction; if a profile cannot be accessed normally, that profile is skipped and the next configured profile is checked.
 
-The Drive OAuth token needs read-only access. The workflow does not need permission to edit or delete Drive files. Only upload videos you own or have permission to edit and repost. A successful run queues a clip in Buffer; it does not publish immediately.
+**Only use videos for which the creator has explicitly authorized downloading, editing, and reposting.** A public profile or public video is not itself permission. Keep `resources/rights.json` accurate and do not enable reuse for any source without permission.
 
-## 1. Add authorized drama sources
+## Daily schedule
 
-Open `resources/drama_sources.txt` and paste one YouTube channel URL or Facebook Page URL per line. The file is intentionally blank until you have permission from each rights holder.
+Four scheduled runs are retained at Pakistan time:
 
-The system checks configured sources for recent uploads. YouTube channel feeds are supported through yt-dlp's normal public access. Facebook links may work only when the page/video is publicly accessible through yt-dlp. The system does not use cookies, bypass sign-in, DRM, private content, or platform restrictions.
+- 09:00 PKT
+- 13:00 PKT
+- 17:00 PKT
+- 21:00 PKT
 
-## 1A. Discover local Pakistani drama upload channels
+Each successful run queues one Facebook Reel in Buffer. A scheduled run may queue fewer than four clips if none of the six profiles has an eligible, publicly accessible, unseen video.
 
-The scheduled workflow also runs `discover_local_sources.py` against `resources/discovery_sources.txt`. This list contains candidate Urdu/Pakistani drama upload channels beyond the major broadcasters. The scanner reads public YouTube channel feeds and writes recent uploads (last 30 days) to `output/local_channel_discoveries.csv`, which is included in the workflow artifact.
+## Editing and publishing pipeline
 
-This is discovery only: it does not download those videos or add them to the reposting queue. Channel handles and upload availability can change; inspect the CSV and verify the uploader/source before using any footage.
+1. Checks the six TikTok profiles in the configured order.
+2. Selects the latest unseen video returned by the public extractor.
+3. Analyses candidate scene windows and asks the configured OpenRouter vision model to select a coherent moment.
+4. Applies the existing professional vertical editing engine and mood-aware music selection.
+5. Keeps the final Facebook Reel at or below 90 seconds.
+6. Uploads the rendered video to Cloudinary.
+7. Queues the Facebook Reel in Buffer.
+8. Saves the source video ID and selected clip start to the processed-history cache to avoid duplicate clips.
 
-## 2. Confirm reuse rights
+The pipeline does not publish directly to Facebook; Buffer receives the queued post.
 
-Open `resources/rights.json`. Keep `reuse_permission_confirmed` as `false` until you have permission to download, edit, and repost clips from every listed source. After you receive permission, set it to `true` and add a short reference to the written permission in `permission_note`.
+## GitHub Actions configuration
 
-**A public channel link is not permission to reuse its episodes.** Do not enable this workflow without rights.
+In **Settings → Secrets and variables → Actions**, configure these Secrets:
 
-## 3. Add scene-matched music
-
-Upload your own or properly licensed music files under the repository root folder: `dramas/`. The editor searches this folder and all subfolders recursively. Supported formats: MP3, WAV, M4A and AAC.
-
-For reliable mood matching, use clear names or mood folders, for example:
-- `dramas/comedy/funny_upbeat.mp3`
-- `dramas/romantic/soft_love.mp3`
-- `dramas/emotional/sad_piano.mp3`
-- `dramas/suspense/dark_tension.mp3`
-- `dramas/action/epic_energy.mp3`
-
-The editor checks the scene category, mood words in the file/folder name, and measured audio characteristics (approximate energy and spectral brightness). It ranks plausible tracks and does **not** fall back to a random unrelated song. If it cannot find a confident match, it keeps the original drama audio.
-
-Important limitation: acoustic analysis cannot understand song lyrics or guarantee the song's story meaning. Clear mood labels in the filename/folder are still needed for dependable matching. Use only music you own or are licensed to use.
-
-## 3A. AI scene selection and professional editing
-
-The AI compares candidate windows using four ordered frames per candidate, then selects the most coherent visible story moment and assigns one category: action, emotional, comedy, romantic, suspense, or interesting. You can optionally set the repository variable `SCENE_PREFERENCE` to describe the kind of moment to prioritize. The AI only judges what is visible in the sampled frames; it does not claim to understand dialogue it has not analysed.
-
-The editing engine detects shot changes and applies one of three treatments:
-- **Clean story:** preserves natural pacing and the original scene order.
-- **Dialogue-to-song:** for comedy/romantic scenes, estimates an opening dialogue pause before introducing matching background music; original dialogue remains audible.
-- **Cinematic:** for action, suspense and emotional scenes, uses detected cuts with subtle opening/closing fades.
-
-## 3B. Automatic clip length
-
-The workflow now chooses the clip length automatically from the selected scene's mood/category. It does not ask for a fixed duration when you run it manually.
-
-- **Comedy:** target 45 seconds
-- **Interesting:** target 60 seconds
-- **Action:** target 75 seconds
-- **Romantic:** target 90 seconds
-- **Suspense:** target 90 seconds
-- **Emotional:** target 120 seconds
-
-The editor shortens the target if the source video has less usable footage remaining. A hard limit of **180 seconds (3 minutes)** is enforced in the rendering code, so no clip can exceed it. The 60-second analysis window is used only to compare candidate scenes; it is not the final output duration.
-
-## 4. Configure GitHub Actions
-
-In GitHub: repository **Settings → Secrets and variables → Actions**.
-
-Add these as **Secrets**:
 - `OPENROUTER_API_KEY`
 - `BUFFER_API_KEY`
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
 
-Add these as **Variables**:
-- `BUFFER_CHANNEL_ID` (your intended Facebook channel ID in Buffer)
-- `BUFFER_EXPECTED_CHANNEL_NAME` (optional; if set, Buffer destination name is checked)
-- `OPENROUTER_MODEL` (optional; default: `openrouter/free`)
-- `SCENE_PREFERENCE` (optional; a short instruction for the kind of coherent scene to prioritize)
+Configure these Variables:
 
-Keep all secret values private. Existing Buffer and Cloudinary credentials can be reused if they are still valid.
+- `BUFFER_CHANNEL_ID` (or keep the existing secret named `BUFFER_CHANNEL_ID` if that is how the repository is currently configured)
+- `BUFFER_EXPECTED_CHANNEL_NAME` (optional)
+- `OPENROUTER_MODEL` (optional; the vision classifier currently pins its supported model)
+- `SCENE_PREFERENCE` (optional)
 
-## 5. Enable scheduled runs
+The Google Drive OAuth credentials and `DRIVE_FOLDER_ID` are no longer used by the scheduled publishing workflow. YouTube/Facebook source lists and the local YouTube discovery script are not used by this TikTok-only pipeline.
 
-The workflow is deliberately disabled for scheduled publishing until you set repository variable:
-`ENABLE_AUTO_PUBLISH=true`
+## Important limitations
 
-Go to **Settings → Secrets and variables → Actions → Variables** and add it only after source permission, music, and credentials are ready. A manual run is available from **Actions → Pakistani Drama Clips Automation → Run workflow**.
-
-Each successful run:
-1. Finds a new episode from configured sources.
-2. Detects scene windows and asks the configured OpenRouter model to classify/select a scene.
-3. Selects an authorized track matching the scene mood.
-4. Creates an automatically timed 1080×1920 vertical clip based on the selected scene category (never longer than 180 seconds), preserving dialogue and adding a confidently matched track when available.
-5. Uploads the clip to Cloudinary and queues a Facebook Reel in Buffer.
-6. Saves the episode ID to the run-history cache to avoid processing it again.
-
-## Notes
-
-- A scheduled run can fail if no new episode exists, a platform blocks public extraction, AI classification fails, a licensed music track is missing, or a connected service rejects the request.
-- yt-dlp uses ordinary public access only; no authentication or restriction bypass is implemented.
-- The pipeline queues one clip per run; it does not directly publish to Facebook.
-- GitHub Actions and third-party free-tier quotas/limits still apply.
+- TikTok public profile extraction depends on TikTok and yt-dlp compatibility and is not guaranteed for every profile or run.
+- No sign-in, cookies, private account access, or platform restriction bypass is attempted.
+- If a creator deletes a video, changes privacy, or TikTok blocks public extraction, that source may be skipped.
+- GitHub Actions, Cloudinary, OpenRouter, and Buffer quotas and service limits still apply.
