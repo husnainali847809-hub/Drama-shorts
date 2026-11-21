@@ -47,13 +47,13 @@ In **Settings → Secrets and variables → Actions**, configure these Secrets:
 
 - `OPENROUTER_API_KEY`
 - `BUFFER_API_KEY`
+- `BUFFER_CHANNEL_ID`
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
 
 Configure these Variables:
 
-- `BUFFER_CHANNEL_ID` (GitHub Actions Secret)
 - `BUFFER_EXPECTED_CHANNEL_NAME` (optional)
 - `OPENROUTER_MODEL` (optional; the vision classifier currently pins its supported model)
 - `SCENE_PREFERENCE` (optional)
