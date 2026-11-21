@@ -7,7 +7,6 @@ import wave
 import json
 from pathlib import Path
 
-import cv2
 import imageio_ffmpeg
 import numpy as np
 from moviepy import (
@@ -41,49 +40,8 @@ def choose_style(category):
 
 
 def detect_scene_cuts(video_path, start, duration, max_cuts=14):
-    """Detect visible shot changes in the selected window using sampled histograms."""
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        log("Scene detector could not open the video; using a clean single segment.")
-        return [0.0, float(duration)]
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-    if total_frames <= 0:
-        cap.release()
-        return [0.0, float(duration)]
-
-    sample_step = max(1, int(round(fps * 0.5)))
-    first = max(0, int(start * fps))
-    last = min(int((start + duration) * fps), int(total_frames) - 1)
-    previous = None
-    cuts = [0.0]
-    frame_no = first
-    while frame_no <= last:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
-        ok, frame = cap.read()
-        if not ok:
-            frame_no += sample_step
-            continue
-        small = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
-        hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0, 1], None, [24, 16], [0, 180, 0, 256])
-        cv2.normalize(hist, hist)
-        current_time = max(0.0, frame_no / fps - start)
-        if previous is not None and current_time - cuts[-1] >= 1.6:
-            similarity = cv2.compareHist(previous, hist, cv2.HISTCMP_CORREL)
-            if similarity < 0.42 and current_time < duration - 0.8:
-                cuts.append(round(current_time, 2))
-        previous = hist
-        frame_no += sample_step
-    cap.release()
-    cuts.append(float(duration))
-    cuts = sorted(set(max(0.0, min(float(duration), x)) for x in cuts))
-    if len(cuts) > max_cuts + 1:
-        # Keep cuts spread across the clip rather than clustering in one moment.
-        inner = cuts[1:-1]
-        picks = [inner[round(i * (len(inner) - 1) / max(1, max_cuts - 1))] for i in range(min(max_cuts, len(inner)))]
-        cuts = [0.0] + picks + [float(duration)]
-    return cuts
+    """Keep the selected trending segment intact; do not inspect or classify scenes."""
+    return [0.0, float(duration)]
 
 
 def _music_profile(track):
@@ -409,20 +367,9 @@ def render_professional_clip(source_path, start, category, output_path, clip_sec
         if selected.duration < min(float(clip_seconds) - 1, 10):
             raise RuntimeError("Selected source segment is too short to edit.")
         style = choose_style(category)
-        cuts = detect_scene_cuts(source_path, float(start), selected.duration)
-        log(f"Auto scene detection found {max(0, len(cuts) - 2)} cut(s); style={style}.")
-
-        pieces = []
-        for left, right in zip(cuts[:-1], cuts[1:]):
-            if right - left < 0.12:
-                continue
-            part = selected.subclipped(left, right)
-            pieces.append(part)
-
-        if not pieces:
-            pieces = [selected]
-        assembled = concatenate_videoclips(pieces, method="compose")
-        vertical = fit_vertical(assembled)
+        # Preserve the trending source segment as-is; no scene/frame analysis.
+        log("Scene detection disabled; editing the complete selected trending segment.")
+        vertical = fit_vertical(selected)
 
         if style == "cinematic":
             # A subtle opening/closing fade avoids abrupt starts without hiding dialogue.
