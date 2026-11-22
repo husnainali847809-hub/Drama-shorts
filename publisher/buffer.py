@@ -74,7 +74,7 @@ def next_publish_time():
     """Return the next fixed Pakistan-time publishing slot as a UTC ISO timestamp."""
     tz = ZoneInfo("Asia/Karachi")
     now = datetime.now(tz)
-    slots = (dt_time(7, 0), dt_time(13, 0), dt_time(17, 0), dt_time(21, 0))
+    slots = (dt_time(9, 0), dt_time(13, 0), dt_time(17, 0), dt_time(21, 0))
     candidates = []
     for day_offset in (0, 1):
         target_date = now.date() + timedelta(days=day_offset)
