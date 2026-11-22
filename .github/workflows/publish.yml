@@ -2,11 +2,11 @@ name: Pakistani Drama Clips Automation
 
 on:
   schedule:
-    # Four queue runs daily at 07:00, 13:00, 17:00 and 21:00 Pakistan time.
+    # Four automation runs daily at 07:00, 11:00, 15:00 and 19:00 Pakistan time; Buffer publishes at 09:00, 13:00, 17:00 and 21:00.
     - cron: "0 2 * * *"
-    - cron: "0 8 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 16 * * *"
+    - cron: "0 6 * * *"
+    - cron: "0 10 * * *"
+    - cron: "0 14 * * *"
   workflow_dispatch:
 
 permissions:
