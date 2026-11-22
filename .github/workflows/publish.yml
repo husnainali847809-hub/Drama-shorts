@@ -2,8 +2,8 @@ name: Pakistani Drama Clips Automation
 
 on:
   schedule:
-    # Four queue runs daily at 09:00, 13:00, 17:00 and 21:00 Pakistan time.
-    - cron: "0 4 * * *"
+    # Four queue runs daily at 07:00, 13:00, 17:00 and 21:00 Pakistan time.
+    - cron: "0 2 * * *"
     - cron: "0 8 * * *"
     - cron: "0 12 * * *"
     - cron: "0 16 * * *"
