@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import random
 import re
@@ -116,7 +117,7 @@ def require_rights():
 def read_history():
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not STATE_FILE.exists():
-        return {"video_ids": [], "video_clips": {}, "last_source_username": ""}
+        return {"video_ids": [], "video_clips": {}, "content_hashes": [], "last_source_username": ""}
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         clips = data.get("video_clips", {})
@@ -131,6 +132,7 @@ def read_history():
                 ][-4:]
         return {
             "video_ids": list(data.get("video_ids", []))[-1000:],
+            "content_hashes": list(data.get("content_hashes", []))[-2000:],
             "video_clips": clean_clips,
             "drama_last": str(data.get("drama_last", "")),
             "last_source_username": str(data.get("last_source_username", "")).lower().lstrip("@"),
@@ -141,10 +143,10 @@ def read_history():
             },
         }
     except (ValueError, OSError, TypeError):
-        return {"video_ids": [], "video_clips": {}, "drama_last": "", "drama_counts": {}, "last_source_username": ""}
+        return {"video_ids": [], "video_clips": {}, "content_hashes": [], "drama_last": "", "drama_counts": {}, "last_source_username": ""}
 
 
-def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None, source_username=None):
+def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None, source_username=None, content_hash=None):
     ids = list(history.get("video_ids", []))
     clips = dict(history.get("video_clips", {}))
     if clip_start is None:
@@ -162,6 +164,7 @@ def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None
     STATE_FILE.write_text(
         json.dumps({
             "video_ids": ids[-1000:],
+            "content_hashes": list(dict.fromkeys([*(history.get("content_hashes", []) or []), *([content_hash] if content_hash else [])]))[-2000:],
             "video_clips": dict(list(clips.items())[-1000:]),
             "drama_last": str(drama_key or history.get("drama_last", "")),
             "last_source_username": str(source_username or history.get("last_source_username", "")).lower().lstrip("@"),
@@ -766,6 +769,19 @@ def main():
 
                 # Download success is the only post-ranking acceptance condition.
                 downloaded = download_trending_candidate(found["url"], candidate_dir)
+                # ID-level deduplication cannot detect the same clip reposted under
+                # another TikTok ID/account. Compare the downloaded bytes as well.
+                digest = hashlib.sha256()
+                with open(downloaded["local_path"], "rb") as video_file:
+                    for chunk in iter(lambda: video_file.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                content_hash = digest.hexdigest()
+                if content_hash in set(history.get("content_hashes", [])):
+                    log(
+                        f"Duplicate content rejected: @{found.get('source_username', 'unknown')} "
+                        f"video {found.get('id')} matches an already queued video (SHA-256)."
+                    )
+                    continue
                 stream = {
                     "url": "",
                     "headers": {},
@@ -827,6 +843,7 @@ def main():
         save_history(
             history, episode["id"],
             source_username=episode.get("source_username") or "",
+            content_hash=content_hash,
         )
         log(
             f"SUCCESS: queued one unchanged trending video. Buffer post ID={queued.get('id')}; "
