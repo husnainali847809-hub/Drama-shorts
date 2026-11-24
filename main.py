@@ -352,6 +352,32 @@ def discover_facebook_latest(page_url, seen_ids):
     return selected
 
 
+def is_bayan_or_religious_content(entry):
+    """Reject clearly religious-lecture/Bayan posts using public video metadata."""
+    terms = (
+        "bayan", "bayaan", "waaz", "waaz", "waz", "dars e", "dars-e",
+        "khutba", "khutbah", "jummah bayan", "juma bayan", "naat",
+        "tilawat", "tilawat e", "quran recitation", "quran tilawat",
+        "hadith", "hadees", "hadees", "islamic lecture", "islamic speech",
+        "religious lecture", "religious speech", "molana", "maulana",
+        "moulana", "mufti", "surah", "tafsir", "tafseer", "islamic status",
+        "deen ki baat", "islamic reminder", "islamic video", "madani",
+        "قرآن", "تلاوت", "بیان", "مولانا", "مفتی", "حدیث", "نعت", "درس"
+    )
+    parts = [
+        str(entry.get("title") or ""),
+        str(entry.get("description") or ""),
+        str(entry.get("alt_title") or ""),
+        " ".join(str(tag) for tag in (entry.get("tags") or [])),
+        " ".join(str(category) for category in (entry.get("categories") or [])),
+    ]
+    metadata = " ".join(parts).casefold()
+    for term in terms:
+        if term.casefold() in metadata:
+            return True, term
+    return False, ""
+
+
 def discover_tiktok_candidates(profile_url, seen_ids):
     """Scan an authorized public profile and rank unseen videos by engagement."""
     parsed = urlparse(profile_url)
@@ -377,8 +403,18 @@ def discover_tiktok_candidates(profile_url, seen_ids):
     cutoff = now - timedelta(days=max_age_days) if max_age_days else None
     candidates = []
     import math
+    rejected_religious = 0
     for entry in entries:
         if not isinstance(entry, dict):
+            continue
+        is_religious, matched_term = is_bayan_or_religious_content(entry)
+        if is_religious:
+            rejected_religious += 1
+            log(
+                f"DRAMA-ONLY FILTER: rejected @{username} video "
+                f"'{str(entry.get('title') or '')[:100]}' "
+                f"(religious/Bayan metadata matched: {matched_term})."
+            )
             continue
         video_id = str(entry.get("id") or entry.get("display_id") or "").strip()
         if not video_id or video_id in seen_ids:
@@ -418,7 +454,12 @@ def discover_tiktok_candidates(profile_url, seen_ids):
             "trend_score": score,
         })
     candidates.sort(key=lambda x: (x["trend_score"], x["view_count"], x["timestamp"]), reverse=True)
-    log(f"TikTok @{username}: scanned {len(entries)} entries; {len(candidates)} unseen candidates (age limit={'off' if not max_age_days else str(max_age_days) + ' days'}).")
+    log(
+        f"TikTok @{username}: scanned {len(entries)} entries; "
+        f"rejected {rejected_religious} Bayan/religious item(s); "
+        f"{len(candidates)} unseen drama-eligible candidates remain "
+        f"(age limit={'off' if not max_age_days else str(max_age_days) + ' days'})."
+    )
     return candidates
 
 def discover_episode(source_url, seen_ids):
