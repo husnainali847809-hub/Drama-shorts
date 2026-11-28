@@ -135,5 +135,5 @@ def queue_facebook_reel(video_url, caption, reserved_slots=None):
         raise RuntimeError(f"Buffer did not confirm Reel queue creation: {result}")
     if post.get("channelId") and post["channelId"] != channel_id:
         raise RuntimeError("SAFETY STOP: Buffer returned an unexpected destination channel.")
-    post.setdefault("dueAt", due_at)
+    post["dueAt"] = post.get("dueAt") or due_at
     return post
