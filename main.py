@@ -117,7 +117,7 @@ def require_rights():
 def read_history():
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not STATE_FILE.exists():
-        return {"video_ids": [], "video_clips": {}, "content_hashes": [], "last_source_username": ""}
+        return {"video_ids": [], "video_clips": {}, "content_hashes": [], "last_source_username": "", "scheduled_slots": []}
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         clips = data.get("video_clips", {})
@@ -133,6 +133,7 @@ def read_history():
         return {
             "video_ids": list(data.get("video_ids", []))[-1000:],
             "content_hashes": list(data.get("content_hashes", []))[-2000:],
+            "scheduled_slots": list(data.get("scheduled_slots", []))[-100:],
             "video_clips": clean_clips,
             "drama_last": str(data.get("drama_last", "")),
             "last_source_username": str(data.get("last_source_username", "")).lower().lstrip("@"),
@@ -143,10 +144,10 @@ def read_history():
             },
         }
     except (ValueError, OSError, TypeError):
-        return {"video_ids": [], "video_clips": {}, "content_hashes": [], "drama_last": "", "drama_counts": {}, "last_source_username": ""}
+        return {"video_ids": [], "video_clips": {}, "content_hashes": [], "drama_last": "", "drama_counts": {}, "last_source_username": "", "scheduled_slots": []}
 
 
-def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None, source_username=None, content_hash=None):
+def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None, source_username=None, content_hash=None, scheduled_slot=None):
     ids = list(history.get("video_ids", []))
     clips = dict(history.get("video_clips", {}))
     if clip_start is None:
@@ -165,6 +166,7 @@ def save_history(history, video_id, clip_start=None, max_clips=4, drama_key=None
         json.dumps({
             "video_ids": ids[-1000:],
             "content_hashes": list(dict.fromkeys([*(history.get("content_hashes", []) or []), *([content_hash] if content_hash else [])]))[-2000:],
+            "scheduled_slots": list(dict.fromkeys([*(history.get("scheduled_slots", []) or []), *([scheduled_slot] if scheduled_slot else [])]))[-100:],
             "video_clips": dict(list(clips.items())[-1000:]),
             "drama_last": str(drama_key or history.get("drama_last", "")),
             "last_source_username": str(source_username or history.get("last_source_username", "")).lower().lstrip("@"),
@@ -880,12 +882,18 @@ def main():
             episode.get("title", "Pakistani Drama"),
             "interesting",
         )
-        queued = queue_facebook_reel(public_url, caption)
+        queued = queue_facebook_reel(
+            public_url, caption,
+            reserved_slots=history.get("scheduled_slots", []),
+        )
+        assigned_slot = queued.get("dueAt")
         save_history(
             history, episode["id"],
             source_username=episode.get("source_username") or "",
             content_hash=content_hash,
+            scheduled_slot=assigned_slot,
         )
+        log(f"Reserved unique Buffer publishing slot: {assigned_slot} (Pakistan time schedule).")
         log(
             f"SUCCESS: queued one unchanged trending video. Buffer post ID={queued.get('id')}; "
             f"episode={episode.get('title')}; source={source_used}; "
