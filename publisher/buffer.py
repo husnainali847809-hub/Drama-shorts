@@ -70,27 +70,36 @@ def verify_channel():
     return channel
 
 
-def next_publish_time():
-    """Return the next fixed Pakistan-time publishing slot as a UTC ISO timestamp."""
+def next_publish_time(reserved_slots=None):
+    """Return the earliest unused Pakistan-time slot, avoiding same-time queue collisions."""
     tz = ZoneInfo("Asia/Karachi")
     now = datetime.now(tz)
     slots = (dt_time(9, 0), dt_time(13, 0), dt_time(17, 0), dt_time(21, 0))
-    candidates = []
-    for day_offset in (0, 1):
+    reserved = set()
+    for value in (reserved_slots or []):
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            reserved.add(parsed.astimezone(timezone.utc).replace(microsecond=0))
+        except (TypeError, ValueError):
+            continue
+
+    # Search far enough ahead that a burst of manual/workflow runs cannot
+    # collapse onto one slot or exhaust the candidate window.
+    for day_offset in range(0, 15):
         target_date = now.date() + timedelta(days=day_offset)
         for slot in slots:
             candidate = datetime.combine(target_date, slot, tzinfo=tz)
-            # Leave a small buffer so rendering/upload finishing close to a slot
-            # does not result in a past-due schedule.
-            if candidate > now + timedelta(minutes=5):
-                candidates.append(candidate)
-    if not candidates:
-        raise RuntimeError("Could not calculate the next Facebook publishing slot.")
-    target = min(candidates)
-    return target.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            if candidate <= now + timedelta(minutes=5):
+                continue
+            candidate_utc = candidate.astimezone(timezone.utc).replace(microsecond=0)
+            if candidate_utc not in reserved:
+                return candidate_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
+    raise RuntimeError("Could not find an unused Facebook publishing slot in the next 15 days.")
 
 
-def queue_facebook_reel(video_url, caption):
+def queue_facebook_reel(video_url, caption, reserved_slots=None):
     verify_channel()
     channel_id = _need("BUFFER_CHANNEL_ID")
     is_cloudinary = video_url.startswith("https://res.cloudinary.com/")
@@ -100,7 +109,7 @@ def queue_facebook_reel(video_url, caption):
     )
     if not (is_cloudinary or is_github_release):
         raise RuntimeError("Only a public Cloudinary or GitHub Release HTTPS video URL may be queued.")
-    due_at = next_publish_time()
+    due_at = next_publish_time(reserved_slots)
     mutation = f'''mutation QueueMovieFacebookReel {{
       createPost(input: {{
         text: {json.dumps(caption, ensure_ascii=False)}
@@ -126,4 +135,5 @@ def queue_facebook_reel(video_url, caption):
         raise RuntimeError(f"Buffer did not confirm Reel queue creation: {result}")
     if post.get("channelId") and post["channelId"] != channel_id:
         raise RuntimeError("SAFETY STOP: Buffer returned an unexpected destination channel.")
+    post.setdefault("dueAt", due_at)
     return post
